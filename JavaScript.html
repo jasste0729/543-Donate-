@@ -686,13 +686,25 @@
   }
 
   function reportPayment(recordId) {
-    const reportMemo = prompt('請輸入正確付款資訊，例如：後五碼 12345、金額 400、轉帳時間。若前次填錯，直接重新輸入即可覆蓋。');
-    if (!reportMemo) return;
+    const lastFive = prompt([
+      '付款回報：請輸入匯款帳號末 5 碼',
+      '',
+      '只需要輸入 5 個數字，例如：12345',
+      '若前一次填錯，重新輸入即可覆蓋。',
+      '',
+      '請勿輸入金額、文字、空白或符號。'
+    ].join('\n'));
+    if (lastFive === null) return;
+    const cleaned = String(lastFive).trim();
+    if (!/^\d{5}$/.test(cleaned)) {
+      alert('請只輸入帳號末 5 碼，必須剛好是 5 個數字，例如：12345');
+      return;
+    }
     setBusy(true);
     google.script.run
       .withSuccessHandler(loadData)
       .withFailureHandler(showError)
-      .reportPayment(recordId, reportMemo);
+      .reportPayment(recordId, cleaned);
   }
 
   function renderAdminRows() {

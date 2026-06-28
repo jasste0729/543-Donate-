@@ -217,9 +217,12 @@ function updatePayment(recordId, paymentStatus, paymentDate) {
 
 function reportPayment(recordId, reportMemo) {
   const memo = String(reportMemo || '').trim();
+  if (!/^\d{5}$/.test(memo)) {
+    throw new Error('付款回報請只輸入帳號末 5 碼，必須剛好是 5 個數字。');
+  }
   return updateRegistration_(recordId, {
     paymentStatus: '已回報',
-    memo: memo ? `付款回報：${memo}` : '付款回報',
+    memo: `付款回報：帳號末五碼 ${memo}`,
     updatedAt: new Date()
   });
 }
