@@ -77,10 +77,14 @@ const PAYMENT_METHOD_LABELS = {
   other: '其他'
 };
 
+const REGISTRATION_QUEUE_WAIT_MS = 45000;
+
 function doGet(e) {
   const template = HtmlService.createTemplateFromFile('Index');
   template.initialMode = e && e.parameter && e.parameter.admin ? 'admin' : 'front';
   template.liffId = PropertiesService.getScriptProperties().getProperty('LIFF_ID') || '';
+  template.initialLineUserId = e && e.parameter && e.parameter.lineUserId ? String(e.parameter.lineUserId) : '';
+  template.initialLiffProfileName = e && e.parameter && e.parameter.liffProfileName ? String(e.parameter.liffProfileName) : '';
   return template
     .evaluate()
     .setTitle('543 捐款回報')
@@ -113,10 +117,17 @@ function setupSheets() {
   return { ok: true };
 }
 
-function getInitialData() {
+function getInitialData(options) {
+  options = options || {};
+  const lineUserId = String(options.lineUserId || '').trim();
+  const isAdmin = options.admin === true;
+  const registrations = isAdmin
+    ? listRegistrations()
+    : listRegistrations().filter((record) => lineUserId && record.lineUserId === lineUserId);
+
   return {
     cases: listCases(),
-    registrations: listRegistrations()
+    registrations
   };
 }
 
@@ -146,10 +157,13 @@ function createRegistration(payload) {
   validateRegistration_(payload);
 
   const lock = LockService.getScriptLock();
-  lock.waitLock(15000);
+  let locked = false;
 
   try {
+    lock.waitLock(REGISTRATION_QUEUE_WAIT_MS);
+    locked = true;
     const now = new Date();
+    validateCaseStillOpenForRegistration_(payload.caseId, Number(payload.totalAmount || 0));
     const recordId = nextRecordId_(payload.caseId);
     const donors = (payload.donors || []).map((donor) => ({
       name: String(donor.name || '').trim(),
@@ -183,8 +197,13 @@ function createRegistration(payload) {
     updateCaseCurrentAmount_(payload.caseId);
 
     return { ok: true, record: normalizeRegistration_(rowToCanonicalObject_(HEADERS.registrations, row)) };
+  } catch (error) {
+    if (String(error && error.message || error).indexOf('Lock') !== -1) {
+      throw new Error('目前登記人數較多，系統正在排隊處理。請稍後再送出一次。');
+    }
+    throw error;
   } finally {
-    lock.releaseLock();
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -585,6 +604,23 @@ function validateRegistration_(payload) {
   if (!payload.representativeName) throw new Error('請填寫代表人姓名');
   if (!payload.totalAmount || Number(payload.totalAmount) <= 0) throw new Error('總金額需大於 0');
   if (!payload.donors || !payload.donors.length) throw new Error('請至少填寫一位捐款人');
+}
+
+function validateCaseStillOpenForRegistration_(caseId, totalAmount) {
+  const sheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
+  const rows = readRowsFromSheet_(sheet);
+  const target = rows.find((row) => row.caseId === caseId);
+  if (!target) throw new Error(`找不到個案：${caseId}`);
+  if (!isOpen_(target.opened) || isCaseFull_(target)) {
+    throw new Error('此個案目前已額滿或未開放，請重新選擇個案。');
+  }
+
+  const targetAmount = Number(target.targetAmount || 0);
+  const currentAmount = Number(target.currentAmount || 0);
+  const remainingAmount = targetAmount > 0 ? targetAmount - currentAmount : 0;
+  if (targetAmount > 0 && Number(totalAmount || 0) > remainingAmount) {
+    throw new Error(`此個案目前餘額只剩 ${remainingAmount} 元，請調整金額或選擇其他個案。`);
+  }
 }
 
 function isOpen_(value) {

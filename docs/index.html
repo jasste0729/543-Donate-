@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>543 捐款回報</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --blue: #2f6fd3;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --bg: #eef5ff;
+        --card: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(180deg, #dcecff 0%, #f8fbff 100%);
+        color: var(--ink);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .card {
+        width: min(92vw, 460px);
+        padding: 28px 22px;
+        border-radius: 24px;
+        background: var(--card);
+        box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12);
+      }
+
+      .brand {
+        font-size: 30px;
+        font-weight: 850;
+        letter-spacing: 0;
+      }
+
+      .sub {
+        margin: 6px 0 28px;
+        color: var(--muted);
+        font-size: 17px;
+        font-weight: 650;
+      }
+
+      .status {
+        padding: 18px;
+        border-radius: 18px;
+        background: var(--bg);
+        color: #1d4ed8;
+        font-size: 19px;
+        font-weight: 750;
+        line-height: 1.55;
+      }
+
+      .button {
+        width: 100%;
+        min-height: 64px;
+        margin-top: 18px;
+        border: 0;
+        border-radius: 18px;
+        background: var(--blue);
+        color: #fff;
+        font-size: 20px;
+        font-weight: 850;
+      }
+
+      .hint {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="brand">543 捐款回報</div>
+      <div class="sub">正在開啟 LINE 身分</div>
+      <div id="status" class="status">準備讀取 LINE 身分...</div>
+      <button id="retryButton" class="button" type="button" hidden>重新開啟</button>
+      <div class="hint">若停在這裡，請用手機 LINE 開啟此頁，或關閉後重新點群組連結。</div>
+    </main>
+
+    <script>
+      const LIFF_ID = '2010528654-q9jlDewQ';
+      const APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzo69ldBeculGpbT0E8TxyS9gvZ0FpFkP9ZYb19MsBx51Wkv4f1XGIC8Ftm9VYT5eQY/exec';
+
+      const statusEl = document.getElementById('status');
+      const retryButton = document.getElementById('retryButton');
+
+      retryButton.addEventListener('click', () => {
+        window.location.reload();
+      });
+
+      function setStatus(message) {
+        statusEl.textContent = message;
+      }
+
+      function withTimeout(promise, ms, message) {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+        ]);
+      }
+
+      function openApp(profile) {
+        const url = new URL(APP_SCRIPT_URL);
+        url.searchParams.set('lineUserId', profile.userId || '');
+        url.searchParams.set('liffProfileName', profile.displayName || '');
+        window.location.replace(url.toString());
+      }
+
+      async function start() {
+        try {
+          if (!window.liff) {
+            throw new Error('LINE LIFF SDK 載入失敗');
+          }
+
+          setStatus('正在初始化 LINE...');
+          await withTimeout(liff.init({ liffId: LIFF_ID }), 15000, 'LINE 初始化逾時');
+
+          if (liff.isLoggedIn && !liff.isLoggedIn()) {
+            setStatus('正在前往 LINE 登入...');
+            liff.login({ redirectUri: window.location.href });
+            return;
+          }
+
+          setStatus('正在讀取 LINE 身分...');
+          const profile = await withTimeout(liff.getProfile(), 15000, 'LINE 身分讀取逾時');
+          setStatus('身分讀取成功，正在開啟表單...');
+          openApp(profile);
+        } catch (error) {
+          setStatus(`讀取失敗：${error.message || error}`);
+          retryButton.hidden = false;
+        }
+      }
+
+      start();
+    </script>
+  </body>
+</html>

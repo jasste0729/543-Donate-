@@ -8,7 +8,7 @@
     <?!= include('Styles'); ?>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   </head>
-  <body data-mode="<?= initialMode ?>" data-liff-id="<?= liffId ?>">
+  <body data-mode="<?= initialMode ?>" data-liff-id="<?= liffId ?>" data-line-user-id="<?= initialLineUserId ?>" data-liff-profile-name="<?= initialLiffProfileName ?>">
     <header class="appHeader">
       <div class="brandBlock">
         <div class="brandTitle">543 捐款回報</div>
@@ -122,26 +122,45 @@
             </div>
             <button id="refreshButton" type="button">重新整理</button>
           </div>
-          <div class="tableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>案號</th>
-                  <th>登記編號</th>
-                  <th>代表人</th>
-                  <th>總金額</th>
-                  <th>芳名清單</th>
-                  <th>付款</th>
-                  <th>收據</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="adminRows"></tbody>
-            </table>
+          <div id="adminCaseSummary" class="adminCaseSummary"></div>
+          <div id="adminWorkArea" class="adminWorkArea hidden">
+            <div class="adminToolbar">
+              <button id="adminBackButton" class="softButton" type="button">返回專案</button>
+              <div>
+                <h2 id="adminCaseTitle">專案處理</h2>
+                <p id="adminCaseMeta"></p>
+              </div>
+            </div>
+            <div class="adminFilters" aria-label="狀態篩選">
+              <button class="adminFilterButton active" type="button" data-filter="needsAction">需處理</button>
+              <button class="adminFilterButton" type="button" data-filter="reported">已回報</button>
+              <button class="adminFilterButton" type="button" data-filter="receiptPending">收據待處理</button>
+              <button class="adminFilterButton" type="button" data-filter="pending">待付款</button>
+              <button class="adminFilterButton" type="button" data-filter="all">全部</button>
+            </div>
+            <input id="adminSearch" class="adminSearch" type="search" placeholder="搜尋代表人、電話、金額、芳名">
+            <div class="adminSelectLine">
+              <button id="adminSelectAllButton" class="softButton" type="button">全選目前清單</button>
+              <button id="adminClearSelectionButton" class="softButton" type="button">清除選取</button>
+            </div>
+            <div id="adminRows" class="adminRecordList"></div>
           </div>
         </section>
       </section>
     </main>
+
+    <div id="adminBulkBar" class="adminBulkBar hidden" aria-live="polite">
+      <div id="adminBulkCount" class="adminBulkCount">已選 0 筆</div>
+      <div class="adminBulkActions">
+        <button type="button" data-action="paid">確認入帳</button>
+        <button type="button" data-action="receiptDone">收據完成</button>
+        <button class="softButton" type="button" data-action="paymentPending">退回待付款</button>
+        <button class="softButton" type="button" data-action="paymentReported">退回已回報</button>
+        <button class="softButton" type="button" data-action="receiptPending">收據待處理</button>
+        <button class="softButton" type="button" data-action="receiptNotRequired">不需收據</button>
+        <button class="cancelButton" type="button" data-action="cancel">取消登記</button>
+      </div>
+    </div>
 
     <nav id="bottomNav" class="bottomNav" aria-label="主要功能">
       <button class="tabButton active" type="button" data-view="registration">登記</button>

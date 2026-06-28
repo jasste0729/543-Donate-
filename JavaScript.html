@@ -4,7 +4,11 @@
     registrations: [],
     lineUserId: '',
     liffProfileName: '',
-    currentView: 'registration'
+    currentView: 'registration',
+    adminCaseId: '',
+    adminFilter: 'needsAction',
+    adminSearch: '',
+    adminSelectedRecords: new Set()
   };
 
   const ADMIN_PASSWORD = '543';
@@ -16,6 +20,7 @@
     cacheElements();
     bindEvents();
     addDonorRow();
+    hydrateInitialLineProfile();
     renderLoadingCases();
     loadData();
     initLiff();
@@ -45,6 +50,16 @@
       'frontResult',
       'myRecords',
       'adminRows',
+      'adminCaseSummary',
+      'adminWorkArea',
+      'adminBackButton',
+      'adminCaseTitle',
+      'adminCaseMeta',
+      'adminSearch',
+      'adminSelectAllButton',
+      'adminClearSelectionButton',
+      'adminBulkBar',
+      'adminBulkCount',
       'refreshButton',
       'profileName',
       'adminButton',
@@ -77,6 +92,51 @@
     document.getElementById('parseDonorsButton').addEventListener('click', parseBulkDonors);
     els.submitButton.addEventListener('click', submitRegistration);
     els.refreshButton.addEventListener('click', loadData);
+    els.adminBackButton.addEventListener('click', () => {
+      state.adminCaseId = '';
+      state.adminSelectedRecords.clear();
+      renderAdminRows();
+    });
+    els.adminSearch.addEventListener('input', () => {
+      state.adminSearch = els.adminSearch.value.trim();
+      state.adminSelectedRecords.clear();
+      renderAdminRows();
+    });
+    els.adminSelectAllButton.addEventListener('click', selectVisibleAdminRecords);
+    els.adminClearSelectionButton.addEventListener('click', () => {
+      state.adminSelectedRecords.clear();
+      renderAdminRows();
+    });
+    document.querySelectorAll('.adminFilterButton').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.adminFilter = button.dataset.filter;
+        state.adminSelectedRecords.clear();
+        renderAdminRows();
+      });
+    });
+    els.adminCaseSummary.addEventListener('click', (event) => {
+      const card = event.target.closest('[data-admin-case-id]');
+      if (!card) return;
+      state.adminCaseId = card.dataset.adminCaseId;
+      state.adminSelectedRecords.clear();
+      renderAdminRows();
+    });
+    els.adminRows.addEventListener('click', (event) => {
+      const card = event.target.closest('[data-record-id]');
+      if (!card) return;
+      const recordId = card.dataset.recordId;
+      if (state.adminSelectedRecords.has(recordId)) {
+        state.adminSelectedRecords.delete(recordId);
+      } else {
+        state.adminSelectedRecords.add(recordId);
+      }
+      renderAdminRows();
+    });
+    els.adminBulkBar.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action]');
+      if (!button) return;
+      runBulkAdminAction(button.dataset.action);
+    });
     els.donorList.addEventListener('input', updateTotal);
     els.donorList.addEventListener('click', (event) => {
       if (event.target.classList.contains('removeDonor')) {
@@ -87,24 +147,80 @@
     });
   }
 
+  function hydrateInitialLineProfile() {
+    state.lineUserId = document.body.dataset.lineUserId || '';
+    state.liffProfileName = document.body.dataset.liffProfileName || '';
+    if (state.liffProfileName) {
+      els.profileName.textContent = `LINE：${state.liffProfileName}`;
+    }
+  }
+
   async function initLiff() {
+    if (state.lineUserId) {
+      showLineIdentityMessage('LINE 身分已完成，正在讀取你的回報紀錄。');
+      return;
+    }
+
     const liffId = document.body.dataset.liffId;
-    if (!liffId || !window.liff) return;
+    showLineIdentityMessage(`LIFF 偵錯：準備初始化，LIFF ID=${liffId || '未設定'}`);
+    if (!liffId) {
+      showLineIdentityMessage('尚未設定 LIFF ID，請通知管理者。');
+      return;
+    }
+    if (!window.liff) {
+      showLineIdentityMessage('LINE 元件尚未載入，請關閉後從 LINE 重新開啟。');
+      return;
+    }
 
     try {
-      const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
-      await Promise.race([liff.init({ liffId }), timeout]);
-      if (!liff.isLoggedIn || !liff.isLoggedIn()) return;
-      if (!liff.getProfile) return;
+      showLineIdentityMessage('LIFF 偵錯：SDK 已載入，開始 liff.init()...');
+      await withTimeout(liff.init({ liffId }), 15000, 'liff.init() 逾時');
+      const inClient = liff.isInClient ? liff.isInClient() : '未知';
+      const loggedIn = liff.isLoggedIn ? liff.isLoggedIn() : '未知';
+      showLineIdentityMessage(`LIFF 偵錯：init 完成，inClient=${inClient}，loggedIn=${loggedIn}`);
+      if (liff.isLoggedIn && !liff.isLoggedIn()) {
+        if (liff.login) {
+          showLineIdentityMessage('LIFF 偵錯：尚未登入，準備導向 LINE 登入...');
+          liff.login({ redirectUri: window.location.href });
+        }
+        return;
+      }
+      if (!liff.getProfile) {
+        showLineIdentityMessage('無法取得 LINE 個人資料，請從 LIFF 連結重新開啟。');
+        return;
+      }
 
-      const profile = await liff.getProfile();
+      showLineIdentityMessage('LIFF 偵錯：開始讀取 LINE 個人資料...');
+      const profile = await withTimeout(liff.getProfile(), 15000, 'liff.getProfile() 逾時');
       state.lineUserId = profile.userId;
       state.liffProfileName = profile.displayName;
       els.profileName.textContent = profile.displayName ? `LINE：${profile.displayName}` : '';
-      renderMyRecords();
+      showLineIdentityMessage(`LIFF 偵錯：取得成功，userId=${profile.userId ? profile.userId.slice(0, 8) + '...' : '空白'}`);
+      loadData();
     } catch (error) {
       console.warn(error);
+      showLineIdentityMessage(`LINE 身分讀取失敗：${lineErrorMessage(error)}`);
     }
+  }
+
+  function withTimeout(promise, ms, message) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+    ]);
+  }
+
+  function showLineIdentityMessage(message) {
+    if (els.myRecords) {
+      els.myRecords.innerHTML = `<div class="notice">${escapeHtml(message)}</div>`;
+    }
+  }
+
+  function lineErrorMessage(error) {
+    if (!error) return '請關閉後從 LINE 重新開啟。';
+    const code = error.code ? `${error.code} ` : '';
+    const message = error.message || String(error);
+    return `${code}${message}`;
   }
 
   function loadData() {
@@ -120,7 +236,10 @@
         setBusy(false);
       })
       .withFailureHandler(showError)
-      .getInitialData();
+      .getInitialData({
+        lineUserId: state.lineUserId,
+        admin: state.currentView === 'admin' && sessionStorage.getItem(ADMIN_SESSION_KEY) === '1'
+      });
   }
 
   function renderLoadingCases() {
@@ -258,6 +377,7 @@
     };
 
     setBusy(true);
+    els.frontResult.innerHTML = '<div class="notice">正在排隊送出登記，請不要關閉或重複按送出。</div>';
     google.script.run
       .withSuccessHandler((result) => {
         els.frontResult.innerHTML = `
@@ -287,12 +407,14 @@
   }
 
   function renderMyRecords() {
+    if (!state.lineUserId) {
+      els.myRecords.innerHTML = '<div class="notice">正在取得 LINE 身分，完成後會顯示你的回報紀錄。</div>';
+      return;
+    }
+
     const mine = state.registrations
       .filter((record) => !isCancelled(record.paymentStatus))
-      .filter((record) => {
-        if (state.lineUserId) return record.lineUserId === state.lineUserId;
-        return true;
-      })
+      .filter((record) => record.lineUserId === state.lineUserId)
       .filter((record) => isPaymentPending(record.paymentStatus) || isReported(record.paymentStatus))
       .slice(0, 20);
 
@@ -306,12 +428,11 @@
       const reportLabel = reported ? '更正回報' : '付款回報';
       return `
         <article class="recordCard">
-          <div class="recordTop">
-            <strong>${escapeHtml(record.recordId)}</strong>
-            <span>${escapeHtml(record.caseId)}</span>
-          </div>
-          <div class="recordAmount">金額 ${money(record.totalAmount)} 元</div>
           <div class="recordActionRow">
+            <div class="recordInfoPanel">
+              <strong>${escapeHtml(record.recordId)}</strong>
+              <span>金額 ${money(record.totalAmount)} 元</span>
+            </div>
             <div class="recordStatusPanel">
               <div>付款狀態 ${statusPill(record.paymentStatus, 'payment')}</div>
               <div>收據狀態 ${statusPill(record.receiptStatus, 'receipt')}</div>
@@ -334,33 +455,193 @@
   }
 
   function renderAdminRows() {
-    els.adminRows.innerHTML = state.registrations.map((record) => {
-      const cancelled = isCancelled(record.paymentStatus);
+    renderAdminCaseSummary();
+    renderAdminWorkArea();
+    renderAdminBulkBar();
+  }
+
+  function renderAdminCaseSummary() {
+    const caseIds = Array.from(new Set([
+      ...state.cases.map((item) => item.caseId),
+      ...state.registrations.map((record) => record.caseId)
+    ])).filter(Boolean);
+
+    if (!caseIds.length) {
+      els.adminCaseSummary.innerHTML = '<div class="notice">目前沒有專案資料。</div>';
+      return;
+    }
+
+    els.adminCaseSummary.innerHTML = caseIds.map((caseId) => {
+      const caseInfo = state.cases.find((item) => item.caseId === caseId) || {};
+      const records = state.registrations.filter((record) => record.caseId === caseId);
+      const active = state.adminCaseId === caseId;
+      const pending = records.filter((record) => isPaymentPending(record.paymentStatus)).length;
+      const reported = records.filter((record) => isReported(record.paymentStatus)).length;
+      const receiptPending = records.filter((record) => isReceiptPending(record.receiptStatus)).length;
+      const done = records.filter((record) => isDone(record.paymentStatus) && !isReceiptPending(record.receiptStatus)).length;
+      const needAction = records.filter(needsAdminAction).length;
       return `
-        <tr class="${cancelled ? 'cancelledRow' : ''}">
-          <td>${escapeHtml(record.caseId)}</td>
-          <td>${escapeHtml(record.recordId)}</td>
-          <td>${escapeHtml(record.representativeName)}<br><span class="muted">${escapeHtml(record.representativePhone || '')}</span></td>
-          <td>${money(record.totalAmount)}</td>
-          <td>${record.donors.map((donor) => `${escapeHtml(donor.name)} ${money(donor.amount)}`).join('<br>')}</td>
-          <td>${statusPill(record.paymentStatus, 'payment')}<br>${escapeHtml(record.paymentDate || '')}</td>
-          <td>${statusPill(record.receiptStatus, 'receipt')}<br>${escapeHtml(record.receiptNo || '')}</td>
-          <td>
-            <div class="actions">
-              <button type="button" onclick="markPaid('${escapeAttr(record.recordId)}')" ${cancelled ? 'disabled' : ''}>確認入帳</button>
-              <button class="softButton" type="button" onclick="resetPayment('${escapeAttr(record.recordId)}', 'pending')" ${cancelled ? 'disabled' : ''}>退回待付款</button>
-              <button class="softButton" type="button" onclick="resetPayment('${escapeAttr(record.recordId)}', 'reported')" ${cancelled ? 'disabled' : ''}>退回已回報</button>
-              <button type="button" onclick="markReceiptDone('${escapeAttr(record.recordId)}')" ${cancelled ? 'disabled' : ''}>收據已處理</button>
-              <button class="softButton" type="button" onclick="resetReceipt('${escapeAttr(record.recordId)}', 'pending')" ${cancelled ? 'disabled' : ''}>收據待處理</button>
-              <button class="softButton" type="button" onclick="resetReceipt('${escapeAttr(record.recordId)}', 'notRequired')" ${cancelled ? 'disabled' : ''}>不需收據</button>
-              ${cancelled
-                ? `<button type="button" onclick="resetPayment('${escapeAttr(record.recordId)}', 'pending')">恢復登記</button>`
-                : `<button class="cancelButton" type="button" onclick="cancelRegistration('${escapeAttr(record.recordId)}')">取消登記</button>`}
-            </div>
-          </td>
-        </tr>
+        <button class="adminCaseCard ${active ? 'active' : ''}" type="button" data-admin-case-id="${escapeAttr(caseId)}">
+          <strong>${escapeHtml(caseId)} ${escapeHtml(caseInfo.title || '')}</strong>
+          <span>需處理 ${needAction} 筆｜總登記 ${records.length} 筆</span>
+          <div class="adminCaseStats">
+            <span>待付款 ${pending}</span>
+            <span>已回報 ${reported}</span>
+            <span>收據待處理 ${receiptPending}</span>
+            <span>完成 ${done}</span>
+          </div>
+        </button>
       `;
     }).join('');
+  }
+
+  function renderAdminWorkArea() {
+    const hasCase = Boolean(state.adminCaseId);
+    els.adminWorkArea.classList.toggle('hidden', !hasCase);
+    if (!hasCase) {
+      els.adminRows.innerHTML = '';
+      return;
+    }
+
+    const caseInfo = state.cases.find((item) => item.caseId === state.adminCaseId) || {};
+    const records = getVisibleAdminRecords();
+    els.adminCaseTitle.textContent = `${state.adminCaseId} ${caseInfo.title || ''}`;
+    els.adminCaseMeta.textContent = `目前顯示 ${records.length} 筆，已選 ${state.adminSelectedRecords.size} 筆`;
+    els.adminSearch.value = state.adminSearch;
+    document.querySelectorAll('.adminFilterButton').forEach((button) => {
+      button.classList.toggle('active', button.dataset.filter === state.adminFilter);
+    });
+
+    if (!records.length) {
+      els.adminRows.innerHTML = '<div class="notice">目前篩選條件下沒有資料。</div>';
+      return;
+    }
+
+    els.adminRows.innerHTML = records.map((record) => {
+      const selected = state.adminSelectedRecords.has(record.recordId);
+      const cancelled = isCancelled(record.paymentStatus);
+      return `
+        <article class="adminRecordCard ${selected ? 'selected' : ''} ${cancelled ? 'cancelledRow' : ''}" data-record-id="${escapeAttr(record.recordId)}">
+          <div class="adminCheck">${selected ? '✓' : ''}</div>
+          <div class="adminRecordMain">
+            <strong>${escapeHtml(record.recordId)}｜${money(record.totalAmount)} 元</strong>
+            <span>${escapeHtml(record.representativeName)}　${escapeHtml(record.representativePhone || '')}</span>
+            <small>${record.donors.map((donor) => `${escapeHtml(donor.name)} ${money(donor.amount)}`).join('、')}</small>
+          </div>
+          <div class="adminRecordStatus">
+            <div>付款 ${statusPill(record.paymentStatus, 'payment')}</div>
+            <div>收據 ${statusPill(record.receiptStatus, 'receipt')}</div>
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+  function getVisibleAdminRecords() {
+    const keyword = state.adminSearch.toLowerCase();
+    return state.registrations
+      .filter((record) => record.caseId === state.adminCaseId)
+      .filter((record) => {
+        if (state.adminFilter === 'all') return true;
+        if (state.adminFilter === 'needsAction') return needsAdminAction(record);
+        if (state.adminFilter === 'reported') return isReported(record.paymentStatus);
+        if (state.adminFilter === 'receiptPending') return isReceiptPending(record.receiptStatus);
+        if (state.adminFilter === 'pending') return isPaymentPending(record.paymentStatus);
+        return true;
+      })
+      .filter((record) => {
+        if (!keyword) return true;
+        const donorText = record.donors.map((donor) => `${donor.name} ${donor.amount}`).join(' ');
+        return [
+          record.recordId,
+          record.representativeName,
+          record.representativePhone,
+          record.totalAmount,
+          donorText
+        ].some((value) => String(value || '').toLowerCase().includes(keyword));
+      });
+  }
+
+  function needsAdminAction(record) {
+    return isReported(record.paymentStatus)
+      || (isDone(record.paymentStatus) && isReceiptPending(record.receiptStatus));
+  }
+
+  function isReceiptPending(value) {
+    return value === 'pending' || value === '待處理' || value === '';
+  }
+
+  function selectVisibleAdminRecords() {
+    getVisibleAdminRecords()
+      .filter((record) => !isCancelled(record.paymentStatus))
+      .forEach((record) => state.adminSelectedRecords.add(record.recordId));
+    renderAdminRows();
+  }
+
+  function renderAdminBulkBar() {
+    const selected = Array.from(state.adminSelectedRecords);
+    els.adminBulkBar.classList.toggle('hidden', !selected.length || state.currentView !== 'admin');
+    els.adminBulkCount.textContent = `已選 ${selected.length} 筆`;
+  }
+
+  async function runBulkAdminAction(action) {
+    const recordIds = Array.from(state.adminSelectedRecords);
+    if (!recordIds.length) return;
+
+    const actionLabels = {
+      paid: '確認入帳',
+      receiptDone: '收據完成',
+      paymentPending: '退回待付款',
+      paymentReported: '退回已回報',
+      receiptPending: '收據待處理',
+      receiptNotRequired: '不需收據',
+      cancel: '取消登記'
+    };
+    const label = actionLabels[action] || '批次操作';
+    const needsMemo = ['paymentPending', 'paymentReported', 'receiptPending', 'receiptNotRequired', 'cancel'].includes(action);
+    const memo = needsMemo
+      ? (prompt(`${label}：請輸入原因（將套用 ${recordIds.length} 筆，可空白）`) || '')
+      : '';
+
+    if (!confirm(`確定要將 ${recordIds.length} 筆資料「${label}」？`)) return;
+
+    setBusy(true);
+    try {
+      for (const recordId of recordIds) {
+        await runAdminAction(recordId, action, memo);
+      }
+      state.adminSelectedRecords.clear();
+      loadData();
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  function runAdminAction(recordId, action, memo) {
+    const todayValue = today();
+    return new Promise((resolve, reject) => {
+      const runner = google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject);
+
+      if (action === 'paid') {
+        runner.updatePayment(recordId, 'paid', todayValue);
+      } else if (action === 'receiptDone') {
+        runner.updateReceipt(recordId, 'done', '', todayValue);
+      } else if (action === 'paymentPending') {
+        runner.resetPaymentStatus(recordId, 'pending', memo);
+      } else if (action === 'paymentReported') {
+        runner.resetPaymentStatus(recordId, 'reported', memo);
+      } else if (action === 'receiptPending') {
+        runner.resetReceiptStatus(recordId, 'pending', memo);
+      } else if (action === 'receiptNotRequired') {
+        runner.resetReceiptStatus(recordId, 'notRequired', memo);
+      } else if (action === 'cancel') {
+        runner.cancelRegistration(recordId, memo);
+      } else {
+        reject(new Error('未知的批次操作'));
+      }
+    });
   }
 
   function markPaid(recordId) {
@@ -429,6 +710,7 @@
     document.getElementById('reportView').classList.toggle('hidden', view !== 'report');
     document.getElementById('adminView').classList.toggle('hidden', view !== 'admin');
     els.bottomNav.classList.toggle('hidden', view === 'admin');
+    renderAdminBulkBar();
     document.querySelectorAll('.tabButton').forEach((button) => {
       button.classList.toggle('active', button.dataset.view === view);
     });
@@ -438,6 +720,7 @@
   function openAdminWithPassword() {
     if (sessionStorage.getItem(ADMIN_SESSION_KEY) === '1') {
       switchView('admin');
+      loadData();
       return;
     }
 
@@ -447,6 +730,7 @@
     if (password === ADMIN_PASSWORD) {
       sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
       switchView('admin');
+      loadData();
       return;
     }
 
@@ -508,6 +792,9 @@
       els.submitButton.disabled = isBusy;
     }
     els.refreshButton.disabled = isBusy;
+    document.querySelectorAll('#adminView button, #adminBulkBar button').forEach((button) => {
+      button.disabled = isBusy;
+    });
   }
 
   function showError(error) {
