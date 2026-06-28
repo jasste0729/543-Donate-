@@ -402,12 +402,12 @@
               <span>${escapeHtml(item.caseId)}</span>
               <strong>${escapeHtml(item.title)}</strong>
             </span>
-            <span class="caseBar"><span style="width:${caseProgress(item)}%"></span></span>
           </span>
           <span class="caseAmount">
             <span>目標金額 ${money(item.targetAmount)}</span>
             <strong>目標餘額 ${money(remaining)}</strong>
           </span>
+          <span class="caseBar"><span style="width:${caseProgress(item)}%"></span></span>
         </button>
       `;
     }).join('');

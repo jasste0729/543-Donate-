@@ -1095,117 +1095,152 @@
       font-size: clamp(30px, 7vw, 44px);
     }
   }
-  /* Registration UI trial: large mobile-first controls */
+  /* Registration UI revision: elderly-friendly mobile controls */
   #registrationView {
-    padding-bottom: 110px;
+    padding-bottom: 240px;
   }
 
   #registrationView .screenIntro {
-    padding: 18px 18px 14px;
+    padding: 22px 20px 16px;
   }
 
   #registrationView .screenIntro h1 {
-    font-size: clamp(34px, 8.8vw, 52px);
+    margin: 0 0 10px;
+    font-size: clamp(42px, 10.5vw, 64px);
     line-height: 1.05;
-    margin: 0 0 8px;
+    font-weight: 950;
   }
 
-  #registrationView .screenIntro p,
+  #registrationView .screenIntro p {
+    margin: 0;
+    font-size: clamp(28px, 7vw, 42px);
+    line-height: 1.2;
+    font-weight: 850;
+  }
+
+  #registrationView .panel {
+    margin: 12px 8px;
+    padding: 20px;
+    border-radius: 22px;
+  }
+
   #registrationView .projectPanel .sectionTitle,
   #registrationView .formPanel .sectionTitle,
   #registrationView .donorHeader .sectionTitle,
   #registrationView .field span,
   #registrationView .receiptModeTitle {
-    font-size: clamp(24px, 6.2vw, 36px);
-    line-height: 1.2;
-    font-weight: 800;
-  }
-
-  #registrationView .panel {
-    padding: 16px;
-    margin: 10px 8px;
-    border-radius: 18px;
+    font-size: clamp(34px, 8.5vw, 54px);
+    line-height: 1.15;
+    font-weight: 950;
   }
 
   #registrationView .caseCards {
-    gap: 14px;
+    gap: 16px;
   }
 
   #registrationView .caseCard {
-    min-height: 170px;
     display: grid;
-    grid-template-columns: 1fr minmax(145px, 42%);
-    align-items: stretch;
-    gap: 12px;
-    padding: 16px;
-    border-radius: 18px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(150px, .9fr);
+    grid-template-areas:
+      "main amount"
+      "bar bar";
+    gap: 14px 18px;
+    min-height: auto;
+    padding: 20px;
+    border-width: 3px;
+    border-radius: 22px;
   }
 
   #registrationView .caseIcon {
     display: none;
   }
 
+  #registrationView .caseMain {
+    grid-area: main;
+    min-width: 0;
+  }
+
   #registrationView .caseTitle {
     display: grid;
-    gap: 6px;
-    font-size: clamp(30px, 8vw, 48px);
-    line-height: 1.1;
-    font-weight: 900;
+    gap: 8px;
+    font-size: clamp(42px, 10vw, 66px);
+    line-height: 1.05;
+    font-weight: 950;
   }
 
   #registrationView .caseTitle strong {
-    font-size: clamp(24px, 6.2vw, 38px);
-    line-height: 1.15;
-  }
-
-  #registrationView .caseBar {
-    height: 16px;
-    border-radius: 999px;
-    margin-top: 18px;
+    overflow-wrap: anywhere;
+    font-size: clamp(34px, 8.5vw, 54px);
+    line-height: 1.1;
+    font-weight: 950;
   }
 
   #registrationView .caseAmount {
+    grid-area: amount;
     display: grid;
     align-content: center;
-    gap: 14px;
-    padding: 14px;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.72);
+    gap: 12px;
+    min-height: 130px;
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, .76);
     text-align: left;
   }
 
-  #registrationView .caseAmount span {
-    font-size: clamp(20px, 5.3vw, 30px);
-    font-weight: 800;
+  #registrationView .caseAmount span,
+  #registrationView .caseAmount strong {
+    display: block;
+    color: var(--ink);
+    font-size: clamp(24px, 6.2vw, 40px);
+    line-height: 1.15;
+    font-weight: 950;
   }
 
-  #registrationView .caseAmount strong {
-    font-size: clamp(27px, 7vw, 44px);
-    line-height: 1.1;
+  #registrationView .caseBar {
+    grid-area: bar;
+    height: 30px;
+    margin-top: 2px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, .09);
+  }
+
+  #registrationView .caseBar span {
+    min-width: 28px;
+    border-radius: inherit;
   }
 
   #registrationView .representativePanel {
     display: grid;
-    gap: 18px;
+    gap: 24px;
   }
 
   #registrationView .inlineField {
     display: grid;
-    grid-template-columns: minmax(120px, 34%) 1fr;
+    grid-template-columns: minmax(180px, 34%) 1fr;
     align-items: center;
-    gap: 12px;
+    gap: 18px;
   }
 
   #registrationView input,
   #registrationView textarea {
-    min-height: 74px;
-    border-radius: 16px;
-    font-size: clamp(24px, 6.2vw, 36px);
-    padding: 18px;
+    min-height: 96px;
+    padding: 22px;
+    border-width: 2px;
+    border-radius: 20px;
+    font-size: clamp(32px, 8vw, 50px);
+    line-height: 1.2;
+    font-weight: 850;
   }
 
   #registrationView textarea {
-    min-height: 156px;
+    min-height: 190px;
+  }
+
+  #registrationView input::placeholder,
+  #registrationView textarea::placeholder {
+    color: #98a2b3;
+    opacity: 1;
   }
 
   #registrationView .payOptions,
@@ -1213,42 +1248,65 @@
   #registrationView .donorModeButtons {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 14px;
   }
 
   #registrationView .optionButton,
   #registrationView .donorModeButton,
   #registrationView .secondaryAction,
   #registrationView .primary {
-    min-height: 92px;
-    border-radius: 16px;
-    font-size: clamp(24px, 6.2vw, 36px);
-    font-weight: 900;
+    min-height: 126px;
+    border-width: 2px;
+    border-radius: 20px;
+    font-size: clamp(32px, 8vw, 50px);
+    line-height: 1.16;
+    font-weight: 950;
   }
 
   #registrationView .optionButton .optionIcon {
     display: none;
   }
 
+  #registrationView .optionButton.selected,
+  #registrationView .donorModeButton.selected {
+    color: #ffffff;
+    border-color: #059669;
+    background: #059669;
+    box-shadow: inset 0 -5px 0 rgba(0, 0, 0, .14);
+  }
+
+  #registrationView .donorModeButton:not(.selected),
+  #registrationView .optionButton:not(.selected) {
+    color: var(--ink);
+    background: #ffffff;
+  }
+
+  #registrationView .secondaryAction {
+    color: #ffffff;
+    border-color: #0f9f8f;
+    background: #0f9f8f;
+    box-shadow: inset 0 -5px 0 rgba(0, 0, 0, .13);
+  }
+
   #registrationView .donorHeader {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 10px;
+    gap: 14px;
     align-items: center;
   }
 
   #registrationView .lastFormButton {
-    min-height: 54px;
+    min-height: 70px;
+    padding: 0 22px;
     border-radius: 999px;
-    padding: 0 18px;
-    font-size: clamp(17px, 4.5vw, 24px);
-    font-weight: 800;
+    font-size: clamp(22px, 5.7vw, 34px);
+    font-weight: 950;
   }
 
   #registrationView .donorModePanel {
     display: grid;
-    gap: 12px;
-    margin-top: 14px;
+    gap: 16px;
+    margin-top: 18px;
   }
 
   #registrationView .donorModePanel.hidden {
@@ -1258,64 +1316,67 @@
   #registrationView .sameAsRepresentativeRow {
     display: flex;
     align-items: center;
-    gap: 12px;
-    font-size: clamp(24px, 6.2vw, 36px);
-    font-weight: 850;
+    gap: 16px;
+    font-size: clamp(34px, 8.5vw, 54px);
+    line-height: 1.15;
+    font-weight: 950;
   }
 
   #registrationView .sameAsRepresentativeRow input {
-    width: 34px;
-    height: 34px;
-    min-height: 34px;
+    width: 54px;
+    height: 54px;
+    min-height: 54px;
+    padding: 0;
   }
 
   #registrationView .singleDonorGrid {
     display: grid;
-    grid-template-columns: 1fr 0.72fr;
-    gap: 12px;
+    grid-template-columns: 1fr minmax(145px, .72fr);
+    gap: 14px;
   }
 
   #registrationView .donorList {
     display: grid;
-    gap: 12px;
-    margin-top: 14px;
+    gap: 14px;
+    margin-top: 18px;
   }
 
   #registrationView .donorRow {
     display: grid;
-    grid-template-columns: 1fr 0.68fr minmax(78px, auto);
-    gap: 10px;
-    padding: 12px;
-    border-radius: 16px;
+    grid-template-columns: 1fr minmax(145px, .68fr) minmax(120px, auto);
+    gap: 12px;
+    padding: 14px;
+    border: 2px solid #d8e5ef;
+    border-radius: 18px;
     background: #f8fbff;
-    border: 1px solid #d8e5ef;
   }
 
   #registrationView .removeDonor {
-    min-height: 74px;
-    border-radius: 14px;
-    font-size: clamp(20px, 5.2vw, 30px);
-    font-weight: 900;
+    min-height: 96px;
+    border-radius: 16px;
     color: #b42318;
     background: #fff1f0;
+    font-size: clamp(28px, 7vw, 44px);
+    font-weight: 950;
   }
 
   #registrationView .summary {
-    min-height: 100px;
-    border-radius: 18px;
-    padding: 20px;
+    min-height: 132px;
+    padding: 24px;
+    border-radius: 22px;
   }
 
   #registrationView .summary span,
   #registrationView .summary strong {
-    font-size: clamp(30px, 8vw, 48px);
+    font-size: clamp(42px, 10vw, 66px);
+    line-height: 1.05;
     font-weight: 950;
   }
 
   #registrationView .receiptModePanel {
     display: grid;
-    gap: 12px;
-    margin-top: 12px;
+    gap: 14px;
+    margin-top: 16px;
   }
 
   #registrationView .receiptModePanel.hidden {
@@ -1325,33 +1386,63 @@
   #registrationView .receiptModeOptions {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: 14px;
+  }
+
+  #registrationView .receiptModeOptions .optionButton {
+    min-height: 118px;
+    white-space: normal;
   }
 
   #registrationView .primary {
-    min-height: 96px;
+    min-height: 146px;
+    color: #ffffff;
+    border-color: #047857;
+    background: #047857;
+    font-size: clamp(40px, 10vw, 64px);
+    box-shadow: inset 0 -7px 0 rgba(0, 0, 0, .18), 0 10px 24px rgba(4, 120, 87, .24);
   }
 
   #bottomNav.bottomNav {
-    min-height: 88px;
+    min-height: 190px;
+    padding: 18px 14px calc(18px + env(safe-area-inset-bottom));
+    gap: 14px;
+    border-top: 2px solid var(--line);
   }
 
   #bottomNav .tabButton {
-    min-height: 72px;
-    font-size: clamp(24px, 6.2vw, 36px);
-    font-weight: 900;
+    min-height: 150px;
+    border-radius: 22px;
+    border: 2px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: clamp(42px, 10vw, 66px);
+    line-height: 1.05;
+    font-weight: 950;
+  }
+
+  #bottomNav .tabButton.active {
+    color: #ffffff;
+    border-color: #1d4ed8;
+    background: #1d4ed8;
+    box-shadow: inset 0 -7px 0 rgba(0, 0, 0, .18);
   }
 
   @media (max-width: 430px) {
-    #registrationView .caseCard,
-    #registrationView .inlineField,
+    #registrationView .caseCard {
+      grid-template-columns: minmax(0, 1fr) minmax(120px, .72fr);
+      gap: 12px;
+      padding: 16px;
+    }
+
+    #registrationView .inlineField {
+      grid-template-columns: minmax(150px, 38%) 1fr;
+      gap: 12px;
+    }
+
     #registrationView .singleDonorGrid,
     #registrationView .donorRow {
       grid-template-columns: 1fr;
-    }
-
-    #registrationView .caseAmount {
-      min-height: 116px;
     }
   }
 </style>
