@@ -1,0 +1,541 @@
+<script>
+  const state = {
+    cases: [],
+    registrations: [],
+    lineUserId: '',
+    liffProfileName: '',
+    currentView: 'registration'
+  };
+
+  const ADMIN_PASSWORD = '543';
+  const ADMIN_SESSION_KEY = 'donationAdminAuthed';
+
+  const els = {};
+
+  document.addEventListener('DOMContentLoaded', () => {
+    cacheElements();
+    bindEvents();
+    addDonorRow();
+    renderLoadingCases();
+    loadData();
+    initLiff();
+
+    if (document.body.dataset.mode === 'admin') {
+      openAdminWithPassword();
+    } else {
+      switchView('registration');
+    }
+  });
+
+  function cacheElements() {
+    [
+      'caseSelect',
+      'caseCards',
+      'representativeName',
+      'representativePhone',
+      'paymentMethod',
+      'donorList',
+      'donorTemplate',
+      'bulkDonors',
+      'bulkDonorResult',
+      'totalAmount',
+      'receiptRequired',
+      'memo',
+      'submitButton',
+      'frontResult',
+      'myRecords',
+      'adminRows',
+      'refreshButton',
+      'profileName',
+      'adminButton',
+      'bottomNav'
+    ].forEach((id) => {
+      els[id] = document.getElementById(id);
+    });
+  }
+
+  function bindEvents() {
+    document.querySelectorAll('.tabButton').forEach((button) => {
+      button.addEventListener('click', () => switchView(button.dataset.view));
+    });
+
+    els.adminButton.addEventListener('click', openAdminWithPassword);
+
+    document.querySelectorAll('.optionButtons').forEach((group) => {
+      group.addEventListener('click', (event) => {
+        const button = event.target.closest('.optionButton');
+        if (!button) return;
+        const target = document.getElementById(group.dataset.target);
+        target.value = button.dataset.value;
+        group.querySelectorAll('.optionButton').forEach((item) => {
+          item.classList.toggle('selected', item === button);
+        });
+      });
+    });
+
+    document.getElementById('addDonorButton').addEventListener('click', () => addDonorRow());
+    document.getElementById('parseDonorsButton').addEventListener('click', parseBulkDonors);
+    els.submitButton.addEventListener('click', submitRegistration);
+    els.refreshButton.addEventListener('click', loadData);
+    els.donorList.addEventListener('input', updateTotal);
+    els.donorList.addEventListener('click', (event) => {
+      if (event.target.classList.contains('removeDonor')) {
+        event.target.closest('.donorRow').remove();
+        if (!els.donorList.querySelector('.donorRow')) addDonorRow();
+        updateTotal();
+      }
+    });
+  }
+
+  async function initLiff() {
+    const liffId = document.body.dataset.liffId;
+    if (!liffId || !window.liff) return;
+
+    try {
+      const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
+      await Promise.race([liff.init({ liffId }), timeout]);
+      if (!liff.isLoggedIn || !liff.isLoggedIn()) return;
+      if (!liff.getProfile) return;
+
+      const profile = await liff.getProfile();
+      state.lineUserId = profile.userId;
+      state.liffProfileName = profile.displayName;
+      els.profileName.textContent = profile.displayName ? `LINE：${profile.displayName}` : '';
+      renderMyRecords();
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+
+  function loadData() {
+    setBusy(true);
+    renderLoadingCases();
+    google.script.run
+      .withSuccessHandler((data) => {
+        state.cases = data.cases || [];
+        state.registrations = data.registrations || [];
+        renderCases();
+        renderMyRecords();
+        renderAdminRows();
+        setBusy(false);
+      })
+      .withFailureHandler(showError)
+      .getInitialData();
+  }
+
+  function renderLoadingCases() {
+    if (els.caseCards) {
+      els.caseCards.innerHTML = '<div class="notice">正在讀取開放個案...</div>';
+    }
+  }
+
+  function renderCases() {
+    if (!state.cases.length) {
+      els.caseSelect.value = '';
+      els.caseCards.innerHTML = '<div class="notice">目前沒有可登記的開放個案。</div>';
+      els.submitButton.disabled = true;
+      return;
+    }
+
+    if (!els.caseSelect.value || !state.cases.some((item) => item.caseId === els.caseSelect.value)) {
+      els.caseSelect.value = state.cases[0].caseId;
+    }
+
+    els.caseCards.innerHTML = state.cases.map((item, index) => {
+      const remaining = Number(item.remainingAmount ?? Math.max(Number(item.targetAmount || 0) - Number(item.currentAmount || 0), 0));
+      const selected = item.caseId === els.caseSelect.value;
+      return `
+        <button class="caseCard theme${index % 5} ${selected ? 'selected' : ''}" type="button" data-case-id="${escapeAttr(item.caseId)}">
+          <span class="caseIcon">${caseIcon(index)}</span>
+          <span class="caseMain">
+            <span class="caseTitle">${escapeHtml(item.caseId)} ${escapeHtml(item.title)}</span>
+            <span class="caseBar"><span style="width:${caseProgress(item)}%"></span></span>
+            <span class="caseStats">
+              <span><b>目標</b>${money(item.targetAmount)}</span>
+              <span><b>已登記</b>${money(item.currentAmount)}</span>
+            </span>
+          </span>
+          <span class="caseAmount">
+            <span>目前餘額</span>
+            <strong>${money(remaining)}</strong>
+          </span>
+        </button>
+      `;
+    }).join('');
+
+    els.caseCards.querySelectorAll('.caseCard').forEach((button) => {
+      button.addEventListener('click', () => {
+        els.caseSelect.value = button.dataset.caseId;
+        renderCases();
+      });
+    });
+  }
+
+  function caseIcon(index) {
+    return ['信', '愛', '助'][index % 3];
+  }
+
+  function caseProgress(item) {
+    const target = Number(item.targetAmount || 0);
+    if (!target) return 0;
+    return Math.min(Math.round((Number(item.currentAmount || 0) / target) * 100), 100);
+  }
+
+  function addDonorRow(name = '', amount = '') {
+    const fragment = els.donorTemplate.content.cloneNode(true);
+    fragment.querySelector('.donorName').value = name;
+    fragment.querySelector('.donorAmount').value = amount;
+    els.donorList.appendChild(fragment);
+  }
+
+  function parseBulkDonors() {
+    const text = els.bulkDonors.value.trim();
+    if (!text) {
+      els.bulkDonorResult.textContent = '請先貼上芳名與金額。';
+      return;
+    }
+
+    const parsed = text
+      .split(/[、，,；;\n\r]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map(parseDonorToken)
+      .filter(Boolean);
+
+    if (!parsed.length) {
+      els.bulkDonorResult.textContent = '格式看不出來，請用「姓名100、姓名200」這種格式。';
+      return;
+    }
+
+    const current = readDonors();
+    if (!current.length) {
+      els.donorList.innerHTML = '';
+    }
+
+    parsed.forEach((donor) => addDonorRow(donor.name, donor.amount));
+    updateTotal();
+    els.bulkDonorResult.textContent = `已加入 ${parsed.length} 位，合計 ${money(parsed.reduce((sum, donor) => sum + donor.amount, 0))} 元`;
+  }
+
+  function parseDonorToken(token) {
+    const match = token.match(/^(.+?)[\s:：]*([0-9][0-9,]*)$/);
+    if (!match) return null;
+
+    const name = match[1].trim();
+    const amount = Number(match[2].replace(/,/g, ''));
+    if (!name || !amount || amount <= 0) return null;
+    return { name, amount };
+  }
+
+  function readDonors() {
+    return Array.from(document.querySelectorAll('.donorRow'))
+      .map((row) => ({
+        name: row.querySelector('.donorName').value.trim(),
+        amount: Number(row.querySelector('.donorAmount').value || 0)
+      }))
+      .filter((donor) => donor.name && donor.amount > 0);
+  }
+
+  function updateTotal() {
+    const total = readDonors().reduce((sum, donor) => sum + donor.amount, 0);
+    els.totalAmount.textContent = `${money(total)} 元`;
+  }
+
+  function submitRegistration() {
+    const donors = readDonors();
+    const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
+    const payload = {
+      caseId: els.caseSelect.value,
+      representativeName: els.representativeName.value.trim(),
+      representativePhone: els.representativePhone.value.trim(),
+      paymentMethod: els.paymentMethod.value,
+      donors,
+      totalAmount,
+      receiptRequired: els.receiptRequired.value === 'true',
+      memo: els.memo.value.trim(),
+      lineUserId: state.lineUserId,
+      liffProfileName: state.liffProfileName
+    };
+
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler((result) => {
+        els.frontResult.innerHTML = `
+          <div class="success">
+            登記完成<br>
+            登記編號：<strong>${escapeHtml(result.record.recordId)}</strong><br>
+            金額：${money(result.record.totalAmount)} 元
+          </div>
+        `;
+        resetForm();
+        switchView('report');
+        loadData();
+      })
+      .withFailureHandler(showError)
+      .createRegistration(payload);
+  }
+
+  function resetForm() {
+    els.representativeName.value = '';
+    els.representativePhone.value = '';
+    els.memo.value = '';
+    els.bulkDonors.value = '';
+    els.bulkDonorResult.textContent = '';
+    els.donorList.innerHTML = '';
+    addDonorRow();
+    updateTotal();
+  }
+
+  function renderMyRecords() {
+    const mine = state.registrations
+      .filter((record) => !isCancelled(record.paymentStatus))
+      .filter((record) => {
+        if (state.lineUserId) return record.lineUserId === state.lineUserId;
+        return true;
+      })
+      .filter((record) => isPaymentPending(record.paymentStatus) || isReported(record.paymentStatus))
+      .slice(0, 20);
+
+    if (!mine.length) {
+      els.myRecords.innerHTML = '<div class="notice">目前沒有待回報或待確認的紀錄。</div>';
+      return;
+    }
+
+    els.myRecords.innerHTML = mine.map((record) => {
+      const reportLabel = isReported(record.paymentStatus) ? '更正付款資訊' : '付款回報';
+      return `
+        <article class="recordCard">
+          <div class="recordTop">
+            <strong>${escapeHtml(record.recordId)} | ${money(record.totalAmount)} 元</strong>
+            <span>${escapeHtml(record.caseId)}</span>
+          </div>
+          <button class="reportButton" type="button" onclick="reportPayment('${escapeAttr(record.recordId)}')">${reportLabel}</button>
+          <div class="recordStatuses">
+            <div>付款狀態：${statusPill(record.paymentStatus, 'payment')}</div>
+            <div>收據狀態：${statusPill(record.receiptStatus, 'receipt')}</div>
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+  function reportPayment(recordId) {
+    const reportMemo = prompt('請輸入正確付款資訊，例如：後五碼 12345、金額 400、轉帳時間。若前次填錯，直接重新輸入即可覆蓋。');
+    if (!reportMemo) return;
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(loadData)
+      .withFailureHandler(showError)
+      .reportPayment(recordId, reportMemo);
+  }
+
+  function renderAdminRows() {
+    els.adminRows.innerHTML = state.registrations.map((record) => {
+      const cancelled = isCancelled(record.paymentStatus);
+      return `
+        <tr class="${cancelled ? 'cancelledRow' : ''}">
+          <td>${escapeHtml(record.caseId)}</td>
+          <td>${escapeHtml(record.recordId)}</td>
+          <td>${escapeHtml(record.representativeName)}<br><span class="muted">${escapeHtml(record.representativePhone || '')}</span></td>
+          <td>${money(record.totalAmount)}</td>
+          <td>${record.donors.map((donor) => `${escapeHtml(donor.name)} ${money(donor.amount)}`).join('<br>')}</td>
+          <td>${statusPill(record.paymentStatus, 'payment')}<br>${escapeHtml(record.paymentDate || '')}</td>
+          <td>${statusPill(record.receiptStatus, 'receipt')}<br>${escapeHtml(record.receiptNo || '')}</td>
+          <td>
+            <div class="actions">
+              <button type="button" onclick="markPaid('${escapeAttr(record.recordId)}')" ${cancelled ? 'disabled' : ''}>確認入帳</button>
+              <button class="softButton" type="button" onclick="resetPayment('${escapeAttr(record.recordId)}', 'pending')" ${cancelled ? 'disabled' : ''}>退回待付款</button>
+              <button class="softButton" type="button" onclick="resetPayment('${escapeAttr(record.recordId)}', 'reported')" ${cancelled ? 'disabled' : ''}>退回已回報</button>
+              <button type="button" onclick="markReceiptDone('${escapeAttr(record.recordId)}')" ${cancelled ? 'disabled' : ''}>收據已處理</button>
+              <button class="softButton" type="button" onclick="resetReceipt('${escapeAttr(record.recordId)}', 'pending')" ${cancelled ? 'disabled' : ''}>收據待處理</button>
+              <button class="softButton" type="button" onclick="resetReceipt('${escapeAttr(record.recordId)}', 'notRequired')" ${cancelled ? 'disabled' : ''}>不需收據</button>
+              ${cancelled
+                ? `<button type="button" onclick="resetPayment('${escapeAttr(record.recordId)}', 'pending')">恢復登記</button>`
+                : `<button class="cancelButton" type="button" onclick="cancelRegistration('${escapeAttr(record.recordId)}')">取消登記</button>`}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function markPaid(recordId) {
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(loadData)
+      .withFailureHandler(showError)
+      .updatePayment(recordId, 'paid', today());
+  }
+
+  function markReceiptDone(recordId) {
+    const receiptNo = prompt('請輸入收據編號');
+    if (!receiptNo) return;
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(loadData)
+      .withFailureHandler(showError)
+      .updateReceipt(recordId, 'done', receiptNo, today());
+  }
+
+  function cancelRegistration(recordId) {
+    const cancelMemo = prompt('請輸入取消原因（可空白）') || '';
+    if (!confirm(`確定要取消 ${recordId}？取消後不會列入目前登記金額。`)) return;
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(loadData)
+      .withFailureHandler(showError)
+      .cancelRegistration(recordId, cancelMemo);
+  }
+
+  function resetPayment(recordId, status) {
+    const labels = {
+      pending: '退回待付款',
+      reported: '退回已回報',
+      paid: '確認入帳',
+      cancelled: '取消登記'
+    };
+    const memo = prompt(`${labels[status] || '修正付款狀態'}：請輸入修正原因（可空白）`) || '';
+    if (!confirm(`確定要將 ${recordId} ${labels[status] || '修正付款狀態'}？`)) return;
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(loadData)
+      .withFailureHandler(showError)
+      .resetPaymentStatus(recordId, status, memo);
+  }
+
+  function resetReceipt(recordId, status) {
+    const labels = {
+      pending: '收據退回待處理',
+      notRequired: '改為不需收據',
+      done: '收據已處理',
+      ignored: '收據不處理'
+    };
+    const memo = prompt(`${labels[status] || '修正收據狀態'}：請輸入修正原因（可空白）`) || '';
+    if (!confirm(`確定要將 ${recordId} ${labels[status] || '修正收據狀態'}？`)) return;
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(loadData)
+      .withFailureHandler(showError)
+      .resetReceiptStatus(recordId, status, memo);
+  }
+
+  function switchView(view) {
+    state.currentView = view;
+    document.getElementById('registrationView').classList.toggle('hidden', view !== 'registration');
+    document.getElementById('reportView').classList.toggle('hidden', view !== 'report');
+    document.getElementById('adminView').classList.toggle('hidden', view !== 'admin');
+    els.bottomNav.classList.toggle('hidden', view === 'admin');
+    document.querySelectorAll('.tabButton').forEach((button) => {
+      button.classList.toggle('active', button.dataset.view === view);
+    });
+    window.scrollTo(0, 0);
+  }
+
+  function openAdminWithPassword() {
+    if (sessionStorage.getItem(ADMIN_SESSION_KEY) === '1') {
+      switchView('admin');
+      return;
+    }
+
+    const password = prompt('請輸入後台密碼');
+    if (password === null) return;
+
+    if (password === ADMIN_PASSWORD) {
+      sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
+      switchView('admin');
+      return;
+    }
+
+    alert('密碼錯誤');
+  }
+
+  function statusPill(value, type) {
+    const text = String(value || '').trim();
+    const labels = {
+      pending: type === 'payment' ? '待付款' : '待處理',
+      paid: '已確認入帳',
+      reported: '已回報',
+      done: '收據已處理',
+      notRequired: '不需收據',
+      cancelled: '已取消',
+      canceled: '已取消',
+      待付款: '待付款',
+      已回報: '已回報',
+      已確認入帳: '已確認入帳',
+      待處理: '待處理',
+      收據已處理: '收據已處理',
+      不需收據: '不需收據',
+      不處理: '不處理',
+      已取消: '已取消'
+    };
+
+    let pillClass = 'pending';
+    if (isCancelled(text)) {
+      pillClass = 'cancelled';
+    } else if (isReported(text)) {
+      pillClass = 'reported';
+    } else if (isDone(text)) {
+      pillClass = 'done';
+    } else if (isPaymentPending(text) || text === '待處理' || !text) {
+      pillClass = type === 'payment' ? 'paymentPending' : 'receiptPending';
+    }
+
+    return `<span class="pill ${pillClass}">${labels[text] || escapeHtml(text || '待處理')}</span>`;
+  }
+
+  function isPaymentPending(value) {
+    return value === 'pending' || value === '待付款' || value === '';
+  }
+
+  function isReported(value) {
+    return value === 'reported' || value === '已回報';
+  }
+
+  function isCancelled(value) {
+    return value === 'cancelled' || value === 'canceled' || value === '已取消';
+  }
+
+  function isDone(value) {
+    return ['paid', 'done', 'notRequired', '已確認入帳', '收據已處理', '不需收據', '不處理'].includes(value);
+  }
+
+  function setBusy(isBusy) {
+    if (state.cases.length) {
+      els.submitButton.disabled = isBusy;
+    }
+    els.refreshButton.disabled = isBusy;
+  }
+
+  function showError(error) {
+    setBusy(false);
+    const message = escapeHtml(error.message || error);
+    if (state.currentView === 'registration') {
+      els.frontResult.innerHTML = `<div class="notice">${message}</div>`;
+    } else if (state.currentView === 'report') {
+      els.myRecords.innerHTML = `<div class="notice">${message}</div>`;
+    } else {
+      alert(message);
+    }
+  }
+
+  function money(value) {
+    return Number(value || 0).toLocaleString('zh-TW');
+  }
+
+  function today() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replaceAll('`', '&#096;');
+  }
+</script>

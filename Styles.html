@@ -1,0 +1,800 @@
+<style>
+  :root {
+    --blue: #2f67c8;
+    --blue-dark: #1f4fa6;
+    --blue-soft: #eaf2ff;
+    --green: #08945b;
+    --green-dark: #056b3d;
+    --green-soft: #eafaf2;
+    --ink: #101828;
+    --muted: #667085;
+    --line: #e6eaf0;
+    --surface: #ffffff;
+    --page: #f5f7fb;
+    --danger: #dc2626;
+    --warn: #b45309;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    padding: 0 0 calc(150px + env(safe-area-inset-bottom));
+    color: var(--ink);
+    background: var(--page);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 21px;
+    line-height: 1.35;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    min-height: 58px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #ffffff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: wait;
+    opacity: .6;
+  }
+
+  .appHeader {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 16px 14px;
+    background: linear-gradient(180deg, #dceaff 0%, #eef5ff 100%);
+    border-bottom: 1px solid #d7e5fb;
+  }
+
+  .brandTitle {
+    font-size: 27px;
+    font-weight: 950;
+    line-height: 1.1;
+  }
+
+  .brandSub,
+  .profileName {
+    margin-top: 4px;
+    color: #475467;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .profileName {
+    color: var(--blue-dark);
+  }
+
+  .headerActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .lotusAvatar {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border: 2px solid rgba(255, 255, 255, .9);
+    border-radius: 999px;
+    color: #be185d;
+    background:
+      radial-gradient(circle at 50% 35%, #fff 0 18%, transparent 19%),
+      radial-gradient(circle at 45% 50%, #fecdd3 0 30%, transparent 31%),
+      linear-gradient(135deg, #fdf2f8, #fbcfe8);
+    box-shadow: 0 6px 16px rgba(31, 79, 166, .18);
+    font-size: 17px;
+    font-weight: 950;
+  }
+
+  .gearButton {
+    display: grid;
+    width: 46px;
+    min-height: 46px;
+    place-items: center;
+    border-radius: 999px;
+    color: var(--blue-dark);
+    background: rgba(255, 255, 255, .74);
+    font-size: 24px;
+  }
+
+  main {
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .view {
+    display: grid;
+    gap: 12px;
+  }
+
+  .screenIntro {
+    padding: 18px 16px 4px;
+  }
+
+  .screenIntro h1,
+  .adminHead h1 {
+    margin: 0;
+    font-size: 30px;
+    line-height: 1.12;
+  }
+
+  .screenIntro p,
+  .adminHead p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  .reportIntro {
+    background: #eef5ff;
+  }
+
+  .panel {
+    margin: 0 8px 14px;
+    padding: 20px 16px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: var(--surface);
+    box-shadow: 0 8px 24px rgba(16, 24, 40, .05);
+  }
+
+  .formPanel {
+    margin-bottom: 22px;
+    padding: 30px 22px;
+    border-radius: 28px;
+  }
+
+  .wide {
+    margin: 10px 6px;
+    overflow: hidden;
+  }
+
+  .sectionTitle {
+    margin-bottom: 16px;
+    font-size: 26px;
+    font-weight: 950;
+  }
+
+  .formPanel .sectionTitle {
+    margin-bottom: 24px;
+    font-size: 38px;
+  }
+
+  .field {
+    display: grid;
+    gap: 12px;
+    margin: 20px 0;
+    font-weight: 900;
+  }
+
+  .formPanel .field {
+    gap: 18px;
+    margin: 30px 0;
+    font-size: 34px;
+  }
+
+  input,
+  textarea {
+    width: 100%;
+    min-height: 78px;
+    padding: 18px 18px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: #ffffff;
+    color: var(--ink);
+    font-size: 25px;
+    font-weight: 650;
+  }
+
+  .formPanel input,
+  .formPanel textarea {
+    min-height: 124px;
+    padding: 28px 24px;
+    border-radius: 24px;
+    font-size: 34px;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #98a2b3;
+    font-size: 18px;
+  }
+
+  .formPanel input::placeholder,
+  .formPanel textarea::placeholder {
+    font-size: 28px;
+  }
+
+  textarea {
+    min-height: 150px;
+    resize: vertical;
+  }
+
+  .formPanel textarea {
+    min-height: 260px;
+  }
+
+  .caseCards {
+    display: grid;
+    gap: 12px;
+  }
+
+  .caseCard {
+    --case-color: var(--green);
+    --case-soft: #dcfce7;
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    width: 100%;
+    padding: 14px;
+    border: 2px solid var(--line);
+    border-radius: 18px;
+    text-align: left;
+    background: #ffffff;
+    gap: 12px;
+  }
+
+  .caseCard.selected {
+    border-color: var(--case-color);
+    background: var(--case-soft);
+    box-shadow: inset 6px 0 0 var(--case-color);
+  }
+
+  .caseCard.theme0 {
+    --case-color: #059669;
+    --case-soft: #ecfdf5;
+  }
+
+  .caseCard.theme1 {
+    --case-color: #dc5f4b;
+    --case-soft: #fff1f2;
+  }
+
+  .caseCard.theme2 {
+    --case-color: #d18a00;
+    --case-soft: #fffbeb;
+  }
+
+  .caseCard.theme3 {
+    --case-color: #2563eb;
+    --case-soft: #eff6ff;
+  }
+
+  .caseCard.theme4 {
+    --case-color: #7c3aed;
+    --case-soft: #f5f3ff;
+  }
+
+  .caseIcon {
+    display: grid;
+    width: 46px;
+    height: 46px;
+    place-items: center;
+    border-radius: 999px;
+    color: var(--case-color);
+    background: var(--case-soft);
+    font-size: 19px;
+    font-weight: 950;
+  }
+
+  .caseMain {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .caseTitle {
+    font-size: 23px;
+    font-weight: 950;
+    line-height: 1.2;
+  }
+
+  .caseBar {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #edf2f7;
+  }
+
+  .caseBar span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--case-color);
+  }
+
+  .caseStats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .caseStats span,
+  .caseAmount {
+    display: grid;
+    gap: 3px;
+    padding: 10px;
+    border-radius: 12px;
+    background: #f5f7fb;
+    font-size: 18px;
+    font-weight: 900;
+  }
+
+  .caseStats b,
+  .caseAmount span {
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 850;
+  }
+
+  .caseAmount {
+    grid-column: 1 / -1;
+    color: #ffffff;
+    background: var(--case-color);
+  }
+
+  .caseAmount span {
+    color: rgba(255, 255, 255, .9);
+  }
+
+  .caseAmount strong {
+    font-size: 30px;
+    font-weight: 950;
+  }
+
+  .optionButtons {
+    display: grid;
+    gap: 12px;
+  }
+
+  .payOptions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .optionButton {
+    display: grid;
+    gap: 8px;
+    min-height: 98px;
+    place-items: center;
+    padding: 14px;
+    font-size: 23px;
+    font-weight: 950;
+  }
+
+  .formPanel .optionButton {
+    min-height: 150px;
+    border-radius: 24px;
+    font-size: 32px;
+  }
+
+  .formPanel .optionIcon {
+    width: 54px;
+    height: 54px;
+    border-radius: 16px;
+    font-size: 24px;
+  }
+
+  .optionIcon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border-radius: 10px;
+    color: var(--blue);
+    background: var(--blue-soft);
+    font-size: 15px;
+  }
+
+  .optionButton.selected {
+    color: #ffffff;
+    border-color: var(--green);
+    background: var(--green);
+  }
+
+  .optionButton.selected .optionIcon {
+    color: var(--green);
+    background: #ffffff;
+  }
+
+  .receiptOptions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .donorHeader,
+  .adminHead,
+  .summary,
+  .recordTop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .smallAction {
+    min-height: 52px;
+    padding: 0 16px;
+    color: var(--green-dark);
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    font-size: 19px;
+    font-weight: 900;
+  }
+
+  .formPanel .smallAction {
+    min-height: 70px;
+    padding: 0 22px;
+    border-radius: 20px;
+    font-size: 26px;
+  }
+
+  .bulkDonorBox {
+    display: grid;
+    gap: 14px;
+    margin: 10px 0 16px;
+    padding: 16px;
+    border-radius: 20px;
+    background: #f1fbf7;
+  }
+
+  .formPanel .bulkDonorBox {
+    gap: 20px;
+    padding: 24px;
+    border-radius: 26px;
+  }
+
+  .formPanel #parseDonorsButton {
+    min-height: 92px;
+    border-radius: 22px;
+    font-size: 34px;
+  }
+
+  .formPanel .bulkDonorResult {
+    font-size: 28px;
+  }
+
+  #parseDonorsButton {
+    color: #ffffff;
+    border-color: #39b99a;
+    background: #39b99a;
+    font-weight: 950;
+  }
+
+  .bulkDonorResult {
+    color: var(--green-dark);
+    font-size: 17px;
+    font-weight: 850;
+  }
+
+  .donorList {
+    display: grid;
+    gap: 14px;
+  }
+
+  .donorRow {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: #fbfcff;
+  }
+
+  .formPanel .donorRow {
+    gap: 18px;
+    padding: 24px;
+    border-radius: 26px;
+  }
+
+  .removeDonor {
+    min-height: 58px;
+    color: #991b1b;
+    border-color: #fecaca;
+    background: #fff1f2;
+    font-size: 26px;
+    font-weight: 950;
+  }
+
+  .formPanel .removeDonor {
+    min-height: 82px;
+    border-radius: 22px;
+    font-size: 38px;
+  }
+
+  .summary {
+    margin-top: 16px;
+    padding: 22px 18px;
+    border-radius: 20px;
+    background: var(--green-soft);
+    font-weight: 950;
+  }
+
+  .formPanel .summary {
+    min-height: 112px;
+    padding: 28px 24px;
+    border-radius: 26px;
+    font-size: 34px;
+  }
+
+  .summary strong {
+    color: var(--green-dark);
+    font-size: 38px;
+  }
+
+  .formPanel .summary strong {
+    font-size: 52px;
+  }
+
+  .primary {
+    width: 100%;
+    min-height: 82px;
+    color: #ffffff;
+    border-color: var(--green);
+    background: var(--green);
+    font-size: 29px;
+    font-weight: 950;
+  }
+
+  .formPanel .primary {
+    min-height: 108px;
+    border-radius: 24px;
+    font-size: 38px;
+  }
+
+  .result {
+    margin-top: 12px;
+  }
+
+  .success,
+  .notice {
+    padding: 14px;
+    border-radius: 14px;
+    font-size: 18px;
+    font-weight: 750;
+    line-height: 1.5;
+  }
+
+  .success {
+    color: var(--green-dark);
+    border: 1px solid #bbf7d0;
+    background: #f0fdf4;
+  }
+
+  .notice {
+    color: var(--warn);
+    border: 1px solid #f7d48a;
+    background: #fffbeb;
+  }
+
+  .recordList {
+    display: grid;
+    gap: 12px;
+  }
+
+  .recordCard {
+    padding: 14px;
+    border: 1px solid #bfdbfe;
+    border-left: 8px solid var(--blue);
+    border-radius: 18px;
+    background: #eff6ff;
+  }
+
+  .recordTop strong {
+    font-size: 22px;
+  }
+
+  .recordTop span {
+    color: var(--blue-dark);
+    font-size: 16px;
+    font-weight: 900;
+  }
+
+  .reportButton {
+    width: 100%;
+    margin: 12px 0;
+    color: #ffffff;
+    border-color: var(--blue);
+    background: var(--blue);
+    font-size: 22px;
+    font-weight: 950;
+    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .14);
+  }
+
+  .reportButton:active {
+    background: var(--blue-dark);
+  }
+
+  .recordStatuses {
+    display: grid;
+    gap: 8px;
+    font-size: 20px;
+    font-weight: 850;
+  }
+
+  .tableWrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 10px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    color: #ffffff;
+    background: #145fb8;
+    white-space: nowrap;
+  }
+
+  .pill {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: #edf2f7;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 900;
+  }
+
+  .pill::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .pill.paymentPending {
+    color: #b45309;
+    border-color: #f59e0b;
+    background: #fffbeb;
+  }
+
+  .pill.reported {
+    color: #075985;
+    border-color: #38bdf8;
+    background: #e0f2fe;
+  }
+
+  .pill.receiptPending {
+    color: #854d0e;
+    border-color: #facc15;
+    background: #fef9c3;
+  }
+
+  .pill.done {
+    color: #08623d;
+    border-color: #22c55e;
+    background: #dcfce7;
+  }
+
+  .pill.cancelled {
+    color: #991b1b;
+    border-color: #ef4444;
+    background: #fee2e2;
+  }
+
+  .cancelledRow {
+    color: #64748b;
+    background: #f8fafc;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .cancelButton {
+    color: #ffffff;
+    border-color: var(--danger);
+    background: var(--danger);
+  }
+
+  .softButton {
+    color: #0f5132;
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+  }
+
+  .actions button:disabled {
+    cursor: not-allowed;
+    opacity: .45;
+  }
+
+  .bottomNav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 -8px 24px rgba(16, 24, 40, .08);
+  }
+
+  .tabButton {
+    min-height: 96px;
+    color: var(--muted);
+    border-color: transparent;
+    background: transparent;
+    font-size: 36px;
+    font-weight: 950;
+  }
+
+  .tabButton.active {
+    color: #ffffff;
+    background: var(--blue);
+  }
+
+  @supports (font-size: clamp(1px, 1vw, 2px)) {
+    body {
+      font-size: clamp(21px, 5vw, 29px);
+    }
+
+    .brandTitle,
+    .screenIntro h1,
+    .adminHead h1 {
+      font-size: clamp(27px, 6.2vw, 36px);
+    }
+
+    .sectionTitle,
+    .field span {
+      font-size: clamp(22px, 5.3vw, 30px);
+    }
+
+    input,
+    textarea,
+    .caseTitle {
+      font-size: clamp(22px, 5.1vw, 30px);
+    }
+
+    .caseAmount strong,
+    .summary strong {
+      font-size: clamp(30px, 7vw, 44px);
+    }
+  }
+</style>

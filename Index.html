@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>543 捐款回報</title>
+    <?!= include('Styles'); ?>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  </head>
+  <body data-mode="<?= initialMode ?>" data-liff-id="<?= liffId ?>">
+    <header class="appHeader">
+      <div class="brandBlock">
+        <div class="brandTitle">543 捐款回報</div>
+        <div class="brandSub">一筆登記，多位芳名</div>
+        <div id="profileName" class="profileName"></div>
+      </div>
+      <div class="headerActions">
+        <div class="lotusAvatar" aria-hidden="true">蓮</div>
+        <button id="adminButton" class="gearButton" type="button" aria-label="後台管理">⚙</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="registrationView" class="view">
+        <div class="screenIntro">
+          <h1>捐款登記</h1>
+          <p>選擇開放個案，填寫代表人與芳名資料。</p>
+        </div>
+
+        <section class="panel projectPanel">
+          <div class="sectionTitle">開放個案</div>
+          <input id="caseSelect" type="hidden">
+          <div id="caseCards" class="caseCards"></div>
+        </section>
+
+        <section class="panel formPanel">
+          <div class="sectionTitle">代表人資訊</div>
+          <label class="field">
+            <span>代表人姓名</span>
+            <input id="representativeName" autocomplete="name" placeholder="例如：張大同">
+          </label>
+          <label class="field">
+            <span>代表人手機</span>
+            <input id="representativePhone" autocomplete="tel" inputmode="tel" placeholder="例如：0912-345-678">
+          </label>
+        </section>
+
+        <section class="panel formPanel">
+          <div class="sectionTitle">付款方式</div>
+          <input id="paymentMethod" type="hidden" value="bankTransfer">
+          <div class="optionButtons payOptions" data-target="paymentMethod">
+            <button class="optionButton selected" type="button" data-value="bankTransfer">
+              <span class="optionIcon">銀</span>
+              銀行轉帳
+            </button>
+            <button class="optionButton" type="button" data-value="atm">
+              <span class="optionIcon">機</span>
+              ATM
+            </button>
+            <button class="optionButton" type="button" data-value="cash">
+              <span class="optionIcon">現</span>
+              現金
+            </button>
+            <button class="optionButton" type="button" data-value="other">
+              <span class="optionIcon">其</span>
+              其他
+            </button>
+          </div>
+        </section>
+
+        <section class="panel formPanel">
+          <div class="donorHeader">
+            <div class="sectionTitle">捐款芳名清單</div>
+            <button id="addDonorButton" class="smallAction" type="button">新增一位</button>
+          </div>
+          <div class="bulkDonorBox">
+            <textarea id="bulkDonors" rows="4" placeholder="可批次貼上：王小明100、李小華200、Christian GRADERT100"></textarea>
+            <button id="parseDonorsButton" type="button">批次加入芳名</button>
+            <div id="bulkDonorResult" class="bulkDonorResult"></div>
+          </div>
+          <div id="donorList" class="donorList"></div>
+          <div class="summary">
+            <span>總金額</span>
+            <strong id="totalAmount">0 元</strong>
+          </div>
+        </section>
+
+        <section class="panel formPanel">
+          <div class="sectionTitle">收據</div>
+          <input id="receiptRequired" type="hidden" value="true">
+          <div class="optionButtons receiptOptions" data-target="receiptRequired">
+            <button class="optionButton selected" type="button" data-value="true">需要收據</button>
+            <button class="optionButton" type="button" data-value="false">不需收據</button>
+          </div>
+          <label class="field">
+            <span>備註</span>
+            <textarea id="memo" rows="3" placeholder="可填寫轉帳後五碼、收據抬頭或其他補充"></textarea>
+          </label>
+          <button id="submitButton" class="primary" type="button">送出登記</button>
+          <div id="frontResult" class="result"></div>
+        </section>
+      </section>
+
+      <section id="reportView" class="view hidden">
+        <div class="screenIntro reportIntro">
+          <h1>付款回報</h1>
+          <p>已登記的待付款資料，會列在這裡。</p>
+        </div>
+        <section class="panel">
+          <div class="sectionTitle">我的待處理紀錄</div>
+          <div id="myRecords" class="recordList"></div>
+        </section>
+      </section>
+
+      <section id="adminView" class="view hidden">
+        <section class="panel wide">
+          <div class="adminHead">
+            <div>
+              <h1>後台管理</h1>
+              <p>確認付款入帳、處理收據與修正狀態。</p>
+            </div>
+            <button id="refreshButton" type="button">重新整理</button>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>案號</th>
+                  <th>登記編號</th>
+                  <th>代表人</th>
+                  <th>總金額</th>
+                  <th>芳名清單</th>
+                  <th>付款</th>
+                  <th>收據</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="adminRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <nav id="bottomNav" class="bottomNav" aria-label="主要功能">
+      <button class="tabButton active" type="button" data-view="registration">登記</button>
+      <button class="tabButton" type="button" data-view="report">回報</button>
+    </nav>
+
+    <template id="donorTemplate">
+      <div class="donorRow">
+        <input class="donorName" placeholder="捐款人姓名">
+        <input class="donorAmount" inputmode="numeric" placeholder="金額">
+        <button class="removeDonor" type="button" title="刪除">×</button>
+      </div>
+    </template>
+
+    <?!= include('JavaScript'); ?>
+  </body>
+</html>
