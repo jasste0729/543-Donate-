@@ -13,13 +13,16 @@
 
   const ADMIN_PASSWORD = '543';
   const ADMIN_SESSION_KEY = 'donationAdminAuthed';
+  const LAST_FORM_KEY = 'donationLastRegistrationForm';
 
   const els = {};
 
   document.addEventListener('DOMContentLoaded', () => {
+    setupRegistrationUiDraft();
     cacheElements();
     bindEvents();
-    addDonorRow();
+    updateReceiptModeVisibility();
+    refreshLastFormButton();
     hydrateInitialLineProfile();
     renderLoadingCases();
     loadData();
@@ -31,6 +34,114 @@
       switchView('registration');
     }
   });
+
+  function setupRegistrationUiDraft() {
+    const intro = document.querySelector('#registrationView .screenIntro');
+    if (intro) {
+      const heading = intro.querySelector('h1');
+      const note = intro.querySelector('p');
+      if (heading) heading.textContent = '捐款登記';
+      if (note) note.textContent = '選擇開放個案，填寫代表人與芳名資料。';
+    }
+
+    const projectTitle = document.querySelector('.projectPanel .sectionTitle');
+    if (projectTitle) projectTitle.textContent = '開放個案';
+
+    const repPanel = document.getElementById('representativeName')?.closest('.panel');
+    if (repPanel) {
+      repPanel.classList.add('representativePanel');
+      const title = repPanel.querySelector('.sectionTitle');
+      if (title) title.remove();
+      repPanel.querySelectorAll('.field').forEach((field) => field.classList.add('inlineField'));
+      const nameLabel = repPanel.querySelector('label:nth-of-type(1) span');
+      const phoneLabel = repPanel.querySelector('label:nth-of-type(2) span');
+      if (nameLabel) nameLabel.textContent = '代表人姓名';
+      if (phoneLabel) phoneLabel.textContent = '代表人手機';
+      const nameInput = document.getElementById('representativeName');
+      const phoneInput = document.getElementById('representativePhone');
+      if (nameInput) nameInput.placeholder = '例如：張大同';
+      if (phoneInput) phoneInput.placeholder = '例如：0912-345-678';
+    }
+
+    const paymentPanel = document.getElementById('paymentMethod')?.closest('.panel');
+    if (paymentPanel) {
+      const title = paymentPanel.querySelector('.sectionTitle');
+      if (title) title.textContent = '付款方式';
+      const labels = {
+        bankTransfer: '銀行轉帳',
+        atm: 'ATM',
+        cash: '現金',
+        other: '其他'
+      };
+      paymentPanel.querySelectorAll('.optionButton').forEach((button) => {
+        button.textContent = labels[button.dataset.value] || button.textContent.trim();
+      });
+    }
+
+    const donorPanel = document.getElementById('bulkDonors')?.closest('.panel');
+    if (donorPanel) {
+      donorPanel.classList.add('donorEntryPanel');
+      donorPanel.innerHTML = `
+        <div class="donorHeader">
+          <div class="sectionTitle">捐款芳名清單</div>
+          <button id="lastFormButton" class="lastFormButton hidden" type="button">套用上次填寫</button>
+        </div>
+        <div class="donorModeButtons">
+          <button id="donorModeBulk" class="donorModeButton" type="button">批次加入芳名</button>
+          <button id="donorModeSingle" class="donorModeButton selected" type="button">新增一位</button>
+        </div>
+        <div id="bulkDonorPanel" class="donorModePanel hidden">
+          <textarea id="bulkDonors" rows="5" placeholder="可貼上：王小明100、李小華200、Christian GRADERT100"></textarea>
+          <button id="parseDonorsButton" class="secondaryAction" type="button">批次加入芳名</button>
+          <div id="bulkDonorResult" class="bulkDonorResult"></div>
+        </div>
+        <div id="singleDonorPanel" class="donorModePanel">
+          <label class="sameAsRepresentativeRow">
+            <input id="sameAsRepresentative" type="checkbox">
+            <span>芳名同代表人</span>
+          </label>
+          <div class="singleDonorGrid">
+            <input id="singleDonorName" placeholder="填寫芳名">
+            <input id="singleDonorAmount" inputmode="numeric" placeholder="金額">
+          </div>
+          <button id="addSingleDonorButton" class="secondaryAction" type="button">加入這一位</button>
+          <div id="singleDonorResult" class="bulkDonorResult"></div>
+        </div>
+        <div id="donorList" class="donorList"></div>
+        <div class="summary">
+          <span>總金額</span>
+          <strong id="totalAmount">0 元</strong>
+        </div>
+      `;
+    }
+
+    const receiptPanel = document.getElementById('receiptRequired')?.closest('.panel');
+    if (receiptPanel) {
+      const title = receiptPanel.querySelector('.sectionTitle');
+      if (title) title.textContent = '收據';
+      const buttons = receiptPanel.querySelectorAll('.receiptOptions .optionButton');
+      if (buttons[0]) buttons[0].textContent = '需要收據';
+      if (buttons[1]) buttons[1].textContent = '不需收據';
+      const receiptOptions = receiptPanel.querySelector('.receiptOptions');
+      if (receiptOptions && !document.getElementById('receiptMode')) {
+        receiptOptions.insertAdjacentHTML('afterend', `
+          <input id="receiptMode" type="hidden" value="representativeTotal">
+          <div id="receiptModePanel" class="receiptModePanel">
+            <div class="receiptModeTitle">收據開立方式</div>
+            <div class="optionButtons receiptModeOptions" data-target="receiptMode">
+              <button class="optionButton selected" type="button" data-value="representativeTotal">代表人+總金額</button>
+              <button class="optionButton" type="button" data-value="eachDonor">每位捐款人單獨開立</button>
+              <button class="optionButton" type="button" data-value="other">其他開立方式</button>
+            </div>
+          </div>
+        `);
+      }
+      const memoLabel = receiptPanel.querySelector('.field span');
+      const memo = document.getElementById('memo');
+      if (memoLabel) memoLabel.textContent = '備註';
+      if (memo) memo.placeholder = '可填轉帳後五碼、收據抬頭或其他補充';
+    }
+  }
 
   function cacheElements() {
     [
@@ -45,6 +156,18 @@
       'bulkDonorResult',
       'totalAmount',
       'receiptRequired',
+      'receiptMode',
+      'receiptModePanel',
+      'lastFormButton',
+      'donorModeBulk',
+      'donorModeSingle',
+      'bulkDonorPanel',
+      'singleDonorPanel',
+      'singleDonorName',
+      'singleDonorAmount',
+      'sameAsRepresentative',
+      'addSingleDonorButton',
+      'singleDonorResult',
       'memo',
       'submitButton',
       'frontResult',
@@ -85,11 +208,21 @@
         group.querySelectorAll('.optionButton').forEach((item) => {
           item.classList.toggle('selected', item === button);
         });
+        if (group.dataset.target === 'receiptRequired') {
+          updateReceiptModeVisibility();
+        }
       });
     });
 
-    document.getElementById('addDonorButton').addEventListener('click', () => addDonorRow());
-    document.getElementById('parseDonorsButton').addEventListener('click', parseBulkDonors);
+    els.donorModeBulk?.addEventListener('click', () => setDonorMode('bulk'));
+    els.donorModeSingle?.addEventListener('click', () => setDonorMode('single'));
+    document.getElementById('parseDonorsButton')?.addEventListener('click', parseBulkDonors);
+    els.addSingleDonorButton?.addEventListener('click', addSingleDonor);
+    els.sameAsRepresentative?.addEventListener('change', syncSameAsRepresentative);
+    els.representativeName?.addEventListener('input', () => {
+      if (els.sameAsRepresentative?.checked) syncSameAsRepresentative();
+    });
+    els.lastFormButton?.addEventListener('click', applyLastForm);
     els.submitButton.addEventListener('click', submitRegistration);
     els.refreshButton.addEventListener('click', loadData);
     els.adminBackButton.addEventListener('click', () => {
@@ -141,7 +274,6 @@
     els.donorList.addEventListener('click', (event) => {
       if (event.target.classList.contains('removeDonor')) {
         event.target.closest('.donorRow').remove();
-        if (!els.donorList.querySelector('.donorRow')) addDonorRow();
         updateTotal();
       }
     });
@@ -265,18 +397,16 @@
       const selected = item.caseId === els.caseSelect.value;
       return `
         <button class="caseCard theme${index % 5} ${selected ? 'selected' : ''}" type="button" data-case-id="${escapeAttr(item.caseId)}">
-          <span class="caseIcon">${caseIcon(index)}</span>
           <span class="caseMain">
-            <span class="caseTitle">${escapeHtml(item.caseId)} ${escapeHtml(item.title)}</span>
-            <span class="caseBar"><span style="width:${caseProgress(item)}%"></span></span>
-            <span class="caseStats">
-              <span><b>目標</b>${money(item.targetAmount)}</span>
-              <span><b>已登記</b>${money(item.currentAmount)}</span>
+            <span class="caseTitle">
+              <span>${escapeHtml(item.caseId)}</span>
+              <strong>${escapeHtml(item.title)}</strong>
             </span>
+            <span class="caseBar"><span style="width:${caseProgress(item)}%"></span></span>
           </span>
           <span class="caseAmount">
-            <span>目前餘額</span>
-            <strong>${money(remaining)}</strong>
+            <span>目標金額 ${money(item.targetAmount)}</span>
+            <strong>目標餘額 ${money(remaining)}</strong>
           </span>
         </button>
       `;
@@ -290,20 +420,122 @@
     });
   }
 
-  function caseIcon(index) {
-    return ['信', '愛', '助'][index % 3];
-  }
-
   function caseProgress(item) {
     const target = Number(item.targetAmount || 0);
     if (!target) return 0;
     return Math.min(Math.round((Number(item.currentAmount || 0) / target) * 100), 100);
   }
 
+  function setDonorMode(mode) {
+    const isBulk = mode === 'bulk';
+    els.bulkDonorPanel?.classList.toggle('hidden', !isBulk);
+    els.singleDonorPanel?.classList.toggle('hidden', isBulk);
+    els.donorModeBulk?.classList.toggle('selected', isBulk);
+    els.donorModeSingle?.classList.toggle('selected', !isBulk);
+  }
+
+  function addSingleDonor() {
+    const name = els.singleDonorName.value.trim();
+    const amount = Number(String(els.singleDonorAmount.value || '').replace(/,/g, ''));
+    if (!name || !amount || amount <= 0) {
+      els.singleDonorResult.textContent = '請填寫芳名與正確金額。';
+      return;
+    }
+    addDonorRow(name, amount);
+    els.singleDonorName.value = els.sameAsRepresentative?.checked ? els.representativeName.value.trim() : '';
+    els.singleDonorAmount.value = '';
+    els.singleDonorResult.textContent = `已加入：${name} ${money(amount)} 元`;
+    updateTotal();
+  }
+
+  function syncSameAsRepresentative() {
+    if (!els.sameAsRepresentative?.checked) return;
+    const name = els.representativeName.value.trim();
+    if (!name) {
+      els.sameAsRepresentative.checked = false;
+      els.singleDonorResult.textContent = '請先填寫代表人姓名。';
+      els.representativeName.focus();
+      return;
+    }
+    els.singleDonorName.value = name;
+    els.singleDonorResult.textContent = '';
+  }
+
+  function updateReceiptModeVisibility() {
+    const needsReceipt = els.receiptRequired?.value === 'true';
+    els.receiptModePanel?.classList.toggle('hidden', !needsReceipt);
+  }
+
+  function receiptModeLabel(value) {
+    return {
+      representativeTotal: '代表人+總金額',
+      eachDonor: '每位捐款人單獨開立',
+      other: '其他開立方式'
+    }[value] || '代表人+總金額';
+  }
+
+  function setOptionValue(targetId, value) {
+    const input = document.getElementById(targetId);
+    if (!input) return;
+    input.value = value;
+    document.querySelectorAll(`.optionButtons[data-target="${targetId}"] .optionButton`).forEach((button) => {
+      button.classList.toggle('selected', button.dataset.value === value);
+    });
+    if (targetId === 'receiptRequired') updateReceiptModeVisibility();
+  }
+
+  function refreshLastFormButton() {
+    if (!els.lastFormButton) return;
+    els.lastFormButton.classList.toggle('hidden', !localStorage.getItem(LAST_FORM_KEY));
+  }
+
+  function saveLastForm(payload, rawMemo) {
+    const data = {
+      representativeName: payload.representativeName,
+      representativePhone: payload.representativePhone,
+      paymentMethod: payload.paymentMethod,
+      donors: payload.donors,
+      receiptRequired: payload.receiptRequired,
+      receiptMode: els.receiptMode?.value || 'representativeTotal',
+      memo: rawMemo || ''
+    };
+    localStorage.setItem(LAST_FORM_KEY, JSON.stringify(data));
+    refreshLastFormButton();
+  }
+
+  function applyLastForm() {
+    let data = null;
+    try {
+      data = JSON.parse(localStorage.getItem(LAST_FORM_KEY) || 'null');
+    } catch (error) {
+      localStorage.removeItem(LAST_FORM_KEY);
+    }
+    if (!data) {
+      refreshLastFormButton();
+      return;
+    }
+    els.representativeName.value = data.representativeName || '';
+    els.representativePhone.value = data.representativePhone || '';
+    els.memo.value = data.memo || '';
+    setOptionValue('paymentMethod', data.paymentMethod || 'bankTransfer');
+    setOptionValue('receiptRequired', String(data.receiptRequired !== false));
+    setOptionValue('receiptMode', data.receiptMode || 'representativeTotal');
+    els.donorList.innerHTML = '';
+    (data.donors || []).forEach((donor) => addDonorRow(donor.name, donor.amount));
+    updateTotal();
+  }
+
   function addDonorRow(name = '', amount = '') {
     const fragment = els.donorTemplate.content.cloneNode(true);
-    fragment.querySelector('.donorName').value = name;
-    fragment.querySelector('.donorAmount').value = amount;
+    const nameInput = fragment.querySelector('.donorName');
+    const amountInput = fragment.querySelector('.donorAmount');
+    const removeButton = fragment.querySelector('.removeDonor');
+    nameInput.placeholder = '芳名';
+    amountInput.placeholder = '金額';
+    nameInput.value = name;
+    amountInput.value = amount;
+    removeButton.textContent = '刪除';
+    removeButton.title = '刪除這一位';
     els.donorList.appendChild(fragment);
   }
 
@@ -363,6 +595,10 @@
   function submitRegistration() {
     const donors = readDonors();
     const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
+    const rawMemo = els.memo.value.trim();
+    const receiptNote = els.receiptRequired.value === 'true'
+      ? `收據開立方式：${receiptModeLabel(els.receiptMode?.value)}`
+      : '收據：不需收據';
     const payload = {
       caseId: els.caseSelect.value,
       representativeName: els.representativeName.value.trim(),
@@ -371,7 +607,7 @@
       donors,
       totalAmount,
       receiptRequired: els.receiptRequired.value === 'true',
-      memo: els.memo.value.trim(),
+      memo: [receiptNote, rawMemo].filter(Boolean).join('\n'),
       lineUserId: state.lineUserId,
       liffProfileName: state.liffProfileName
     };
@@ -380,6 +616,7 @@
     els.frontResult.innerHTML = '<div class="notice">正在排隊送出登記，請不要關閉或重複按送出。</div>';
     google.script.run
       .withSuccessHandler((result) => {
+        saveLastForm(payload, rawMemo);
         els.frontResult.innerHTML = `
           <div class="success">
             登記完成<br>
@@ -399,10 +636,14 @@
     els.representativeName.value = '';
     els.representativePhone.value = '';
     els.memo.value = '';
-    els.bulkDonors.value = '';
-    els.bulkDonorResult.textContent = '';
+    if (els.bulkDonors) els.bulkDonors.value = '';
+    if (els.bulkDonorResult) els.bulkDonorResult.textContent = '';
+    if (els.singleDonorName) els.singleDonorName.value = '';
+    if (els.singleDonorAmount) els.singleDonorAmount.value = '';
+    if (els.singleDonorResult) els.singleDonorResult.textContent = '';
+    if (els.sameAsRepresentative) els.sameAsRepresentative.checked = false;
     els.donorList.innerHTML = '';
-    addDonorRow();
+    setDonorMode('single');
     updateTotal();
   }
 

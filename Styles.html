@@ -428,8 +428,7 @@
 
   .donorHeader,
   .adminHead,
-  .summary,
-  .recordTop {
+  .summary {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -598,68 +597,93 @@
   }
 
   .recordCard {
-    padding: 18px;
+    padding: 16px;
     border: 1px solid #bfdbfe;
     border-left: 8px solid var(--blue);
     border-radius: 22px;
     background: #eff6ff;
   }
 
-  .recordTop strong {
-    font-size: 30px;
-  }
-
-  .recordTop span {
-    color: var(--blue-dark);
-    font-size: 20px;
-    font-weight: 900;
-  }
-
+  .recordTop,
   .recordAmount {
-    margin: 8px 0 14px;
-    color: #475467;
-    font-size: 24px;
-    font-weight: 900;
+    display: none;
   }
 
   .recordActionRow {
     display: grid;
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.45fr) minmax(0, .95fr);
     gap: 12px;
     align-items: stretch;
+  }
+
+  .recordInfoPanel {
+    display: grid;
+    align-content: center;
+    gap: 18px;
+    min-height: 150px;
+    padding: 18px;
+    min-width: 0;
+  }
+
+  .recordInfoPanel strong {
+    color: #101828;
+    font-size: clamp(28px, 6vw, 48px);
+    font-weight: 950;
+    line-height: 1;
+  }
+
+  .recordInfoPanel span {
+    color: #475467;
+    font-size: clamp(24px, 5vw, 40px);
+    font-weight: 950;
+    line-height: 1.15;
   }
 
   .recordStatusPanel {
     display: grid;
     gap: 12px;
-    min-height: 128px;
-    padding: 16px;
+    align-content: center;
+    min-height: 150px;
+    padding: 16px 18px;
+    min-width: 0;
     border: 2px solid #bfdbfe;
     border-radius: 18px;
     background: #ffffff;
-    font-size: 24px;
+    font-size: clamp(22px, 4.3vw, 34px);
     font-weight: 950;
   }
 
+  .recordStatusPanel > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    white-space: nowrap;
+  }
+
   .recordStatusPanel .pill {
-    min-height: 42px;
-    padding: 8px 14px;
-    font-size: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    padding: 8px 16px;
+    font-size: clamp(20px, 4vw, 32px);
+    white-space: nowrap;
   }
 
   .recordStatusPanel .pill::before {
-    width: 13px;
-    height: 13px;
+    width: 15px;
+    height: 15px;
   }
 
   .reportButton {
     width: 100%;
-    min-height: 128px;
+    min-height: 150px;
     margin: 0;
     color: #ffffff;
     border-color: var(--blue);
     background: var(--blue);
-    font-size: 30px;
+    font-size: clamp(28px, 5.5vw, 42px);
     font-weight: 950;
     box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .14);
   }
@@ -784,6 +808,237 @@
     opacity: .45;
   }
 
+  .adminCaseSummary {
+    display: grid;
+    gap: 14px;
+  }
+
+  .adminCaseCard {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    min-height: 148px;
+    padding: 18px;
+    color: var(--ink);
+    border: 2px solid #dbeafe;
+    border-left: 8px solid var(--blue);
+    border-radius: 18px;
+    background: #f8fbff;
+    text-align: left;
+  }
+
+  .adminCaseCard.active {
+    border-color: var(--green);
+    background: #ecfdf5;
+  }
+
+  .adminCaseCard strong {
+    font-size: clamp(24px, 5.5vw, 34px);
+    font-weight: 950;
+  }
+
+  .adminCaseCard > span {
+    color: var(--muted);
+    font-size: clamp(18px, 4.2vw, 25px);
+    font-weight: 850;
+  }
+
+  .adminCaseStats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .adminCaseStats span {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #eef6ff;
+    font-size: clamp(17px, 4vw, 23px);
+    font-weight: 900;
+  }
+
+  .adminWorkArea {
+    display: grid;
+    gap: 24px;
+    margin-top: 28px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+  }
+
+  .adminToolbar {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: center;
+  }
+
+  .adminToolbar .softButton {
+    min-height: 84px;
+    padding: 0 22px;
+    font-size: clamp(23px, 5.3vw, 32px);
+    font-weight: 950;
+  }
+
+  .adminToolbar h2 {
+    margin: 0;
+    font-size: clamp(40px, 9.2vw, 64px);
+    line-height: 1.08;
+  }
+
+  .adminToolbar p {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: clamp(25px, 5.8vw, 38px);
+    font-weight: 900;
+  }
+
+  .adminFilters {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .adminFilterButton {
+    min-height: 112px;
+    padding: 0 28px;
+    color: #155e75;
+    border-color: #bae6fd;
+    background: #f0f9ff;
+    white-space: nowrap;
+    font-size: clamp(27px, 6.2vw, 40px);
+    font-weight: 950;
+  }
+
+  .adminFilterButton.active {
+    color: #ffffff;
+    border-color: var(--blue);
+    background: var(--blue);
+  }
+
+  .adminSearch {
+    min-height: 86px;
+    font-size: clamp(22px, 5vw, 32px);
+  }
+
+  .adminSelectLine {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .adminRecordList {
+    display: grid;
+    gap: 10px;
+    padding-bottom: 430px;
+  }
+
+  .adminRecordCard {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1.25fr) minmax(0, .95fr);
+    gap: 10px;
+    align-items: center;
+    min-height: 116px;
+    padding: 12px;
+    border: 2px solid #dbeafe;
+    border-left: 8px solid var(--blue);
+    border-radius: 18px;
+    background: #f8fbff;
+  }
+
+  .adminRecordCard.selected {
+    border-color: var(--green);
+    background: #ecfdf5;
+    box-shadow: inset 0 0 0 2px rgba(16, 185, 129, .18);
+  }
+
+  .adminCheck {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    color: #ffffff;
+    border: 2px solid #93c5fd;
+    border-radius: 12px;
+    background: #ffffff;
+    font-size: 28px;
+    font-weight: 950;
+  }
+
+  .adminRecordCard.selected .adminCheck {
+    border-color: var(--green);
+    background: var(--green);
+  }
+
+  .adminRecordMain {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .adminRecordMain strong {
+    font-size: clamp(20px, 4.7vw, 28px);
+    font-weight: 950;
+  }
+
+  .adminRecordMain span,
+  .adminRecordMain small {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: clamp(16px, 3.8vw, 22px);
+    font-weight: 850;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .adminRecordStatus {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    font-size: clamp(16px, 3.8vw, 22px);
+    font-weight: 900;
+  }
+
+  .adminRecordStatus .pill {
+    min-height: 32px;
+    padding: 5px 9px;
+    font-size: clamp(14px, 3.4vw, 19px);
+  }
+
+  .adminBulkBar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 35;
+    display: grid;
+    gap: 14px;
+    padding: 18px 12px calc(18px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: rgba(255, 255, 255, .98);
+    box-shadow: 0 -10px 28px rgba(16, 24, 40, .14);
+  }
+
+  .adminBulkCount {
+    font-size: clamp(25px, 5.8vw, 36px);
+    font-weight: 950;
+    text-align: center;
+  }
+
+  .adminBulkActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+
+  .adminBulkActions button {
+    min-height: 120px;
+    font-size: clamp(25px, 5.8vw, 36px);
+    font-weight: 950;
+  }
+
   .bottomNav {
     position: fixed;
     right: 0;
@@ -838,6 +1093,265 @@
     .caseAmount strong,
     .summary strong {
       font-size: clamp(30px, 7vw, 44px);
+    }
+  }
+  /* Registration UI trial: large mobile-first controls */
+  #registrationView {
+    padding-bottom: 110px;
+  }
+
+  #registrationView .screenIntro {
+    padding: 18px 18px 14px;
+  }
+
+  #registrationView .screenIntro h1 {
+    font-size: clamp(34px, 8.8vw, 52px);
+    line-height: 1.05;
+    margin: 0 0 8px;
+  }
+
+  #registrationView .screenIntro p,
+  #registrationView .projectPanel .sectionTitle,
+  #registrationView .formPanel .sectionTitle,
+  #registrationView .donorHeader .sectionTitle,
+  #registrationView .field span,
+  #registrationView .receiptModeTitle {
+    font-size: clamp(24px, 6.2vw, 36px);
+    line-height: 1.2;
+    font-weight: 800;
+  }
+
+  #registrationView .panel {
+    padding: 16px;
+    margin: 10px 8px;
+    border-radius: 18px;
+  }
+
+  #registrationView .caseCards {
+    gap: 14px;
+  }
+
+  #registrationView .caseCard {
+    min-height: 170px;
+    display: grid;
+    grid-template-columns: 1fr minmax(145px, 42%);
+    align-items: stretch;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  #registrationView .caseIcon {
+    display: none;
+  }
+
+  #registrationView .caseTitle {
+    display: grid;
+    gap: 6px;
+    font-size: clamp(30px, 8vw, 48px);
+    line-height: 1.1;
+    font-weight: 900;
+  }
+
+  #registrationView .caseTitle strong {
+    font-size: clamp(24px, 6.2vw, 38px);
+    line-height: 1.15;
+  }
+
+  #registrationView .caseBar {
+    height: 16px;
+    border-radius: 999px;
+    margin-top: 18px;
+  }
+
+  #registrationView .caseAmount {
+    display: grid;
+    align-content: center;
+    gap: 14px;
+    padding: 14px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.72);
+    text-align: left;
+  }
+
+  #registrationView .caseAmount span {
+    font-size: clamp(20px, 5.3vw, 30px);
+    font-weight: 800;
+  }
+
+  #registrationView .caseAmount strong {
+    font-size: clamp(27px, 7vw, 44px);
+    line-height: 1.1;
+  }
+
+  #registrationView .representativePanel {
+    display: grid;
+    gap: 18px;
+  }
+
+  #registrationView .inlineField {
+    display: grid;
+    grid-template-columns: minmax(120px, 34%) 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+
+  #registrationView input,
+  #registrationView textarea {
+    min-height: 74px;
+    border-radius: 16px;
+    font-size: clamp(24px, 6.2vw, 36px);
+    padding: 18px;
+  }
+
+  #registrationView textarea {
+    min-height: 156px;
+  }
+
+  #registrationView .payOptions,
+  #registrationView .receiptOptions,
+  #registrationView .donorModeButtons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  #registrationView .optionButton,
+  #registrationView .donorModeButton,
+  #registrationView .secondaryAction,
+  #registrationView .primary {
+    min-height: 92px;
+    border-radius: 16px;
+    font-size: clamp(24px, 6.2vw, 36px);
+    font-weight: 900;
+  }
+
+  #registrationView .optionButton .optionIcon {
+    display: none;
+  }
+
+  #registrationView .donorHeader {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  #registrationView .lastFormButton {
+    min-height: 54px;
+    border-radius: 999px;
+    padding: 0 18px;
+    font-size: clamp(17px, 4.5vw, 24px);
+    font-weight: 800;
+  }
+
+  #registrationView .donorModePanel {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  #registrationView .donorModePanel.hidden {
+    display: none;
+  }
+
+  #registrationView .sameAsRepresentativeRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: clamp(24px, 6.2vw, 36px);
+    font-weight: 850;
+  }
+
+  #registrationView .sameAsRepresentativeRow input {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+  }
+
+  #registrationView .singleDonorGrid {
+    display: grid;
+    grid-template-columns: 1fr 0.72fr;
+    gap: 12px;
+  }
+
+  #registrationView .donorList {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  #registrationView .donorRow {
+    display: grid;
+    grid-template-columns: 1fr 0.68fr minmax(78px, auto);
+    gap: 10px;
+    padding: 12px;
+    border-radius: 16px;
+    background: #f8fbff;
+    border: 1px solid #d8e5ef;
+  }
+
+  #registrationView .removeDonor {
+    min-height: 74px;
+    border-radius: 14px;
+    font-size: clamp(20px, 5.2vw, 30px);
+    font-weight: 900;
+    color: #b42318;
+    background: #fff1f0;
+  }
+
+  #registrationView .summary {
+    min-height: 100px;
+    border-radius: 18px;
+    padding: 20px;
+  }
+
+  #registrationView .summary span,
+  #registrationView .summary strong {
+    font-size: clamp(30px, 8vw, 48px);
+    font-weight: 950;
+  }
+
+  #registrationView .receiptModePanel {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  #registrationView .receiptModePanel.hidden {
+    display: none;
+  }
+
+  #registrationView .receiptModeOptions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  #registrationView .primary {
+    min-height: 96px;
+  }
+
+  #bottomNav.bottomNav {
+    min-height: 88px;
+  }
+
+  #bottomNav .tabButton {
+    min-height: 72px;
+    font-size: clamp(24px, 6.2vw, 36px);
+    font-weight: 900;
+  }
+
+  @media (max-width: 430px) {
+    #registrationView .caseCard,
+    #registrationView .inlineField,
+    #registrationView .singleDonorGrid,
+    #registrationView .donorRow {
+      grid-template-columns: 1fr;
+    }
+
+    #registrationView .caseAmount {
+      min-height: 116px;
     }
   }
 </style>
