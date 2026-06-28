@@ -302,17 +302,21 @@
     }
 
     els.myRecords.innerHTML = mine.map((record) => {
-      const reportLabel = isReported(record.paymentStatus) ? '更正付款資訊' : '付款回報';
+      const reported = isReported(record.paymentStatus);
+      const reportLabel = reported ? '更正回報' : '付款回報';
       return `
         <article class="recordCard">
           <div class="recordTop">
-            <strong>${escapeHtml(record.recordId)} | ${money(record.totalAmount)} 元</strong>
+            <strong>${escapeHtml(record.recordId)}</strong>
             <span>${escapeHtml(record.caseId)}</span>
           </div>
-          <button class="reportButton" type="button" onclick="reportPayment('${escapeAttr(record.recordId)}')">${reportLabel}</button>
-          <div class="recordStatuses">
-            <div>付款狀態：${statusPill(record.paymentStatus, 'payment')}</div>
-            <div>收據狀態：${statusPill(record.receiptStatus, 'receipt')}</div>
+          <div class="recordAmount">金額 ${money(record.totalAmount)} 元</div>
+          <div class="recordActionRow">
+            <div class="recordStatusPanel">
+              <div>付款狀態 ${statusPill(record.paymentStatus, 'payment')}</div>
+              <div>收據狀態 ${statusPill(record.receiptStatus, 'receipt')}</div>
+            </div>
+            <button class="reportButton ${reported ? 'reported' : ''}" type="button" onclick="reportPayment('${escapeAttr(record.recordId)}')">${reportLabel}</button>
           </div>
         </article>
       `;

@@ -598,36 +598,79 @@
   }
 
   .recordCard {
-    padding: 14px;
+    padding: 18px;
     border: 1px solid #bfdbfe;
     border-left: 8px solid var(--blue);
-    border-radius: 18px;
+    border-radius: 22px;
     background: #eff6ff;
   }
 
   .recordTop strong {
-    font-size: 22px;
+    font-size: 30px;
   }
 
   .recordTop span {
     color: var(--blue-dark);
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 900;
+  }
+
+  .recordAmount {
+    margin: 8px 0 14px;
+    color: #475467;
+    font-size: 24px;
+    font-weight: 900;
+  }
+
+  .recordActionRow {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .recordStatusPanel {
+    display: grid;
+    gap: 12px;
+    min-height: 128px;
+    padding: 16px;
+    border: 2px solid #bfdbfe;
+    border-radius: 18px;
+    background: #ffffff;
+    font-size: 24px;
+    font-weight: 950;
+  }
+
+  .recordStatusPanel .pill {
+    min-height: 42px;
+    padding: 8px 14px;
+    font-size: 20px;
+  }
+
+  .recordStatusPanel .pill::before {
+    width: 13px;
+    height: 13px;
   }
 
   .reportButton {
     width: 100%;
-    margin: 12px 0;
+    min-height: 128px;
+    margin: 0;
     color: #ffffff;
     border-color: var(--blue);
     background: var(--blue);
-    font-size: 22px;
+    font-size: 30px;
     font-weight: 950;
     box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .14);
   }
 
   .reportButton:active {
     background: var(--blue-dark);
+  }
+
+  .reportButton.reported {
+    border-color: #0f766e;
+    background: #0f766e;
   }
 
   .recordStatuses {
