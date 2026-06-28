@@ -685,26 +685,74 @@
     }).join('');
   }
 
-  function reportPayment(recordId) {
-    const lastFive = prompt([
-      '付款回報：請輸入匯款帳號末 5 碼',
-      '',
-      '只需要輸入 5 個數字，例如：12345',
-      '若前一次填錯，重新輸入即可覆蓋。',
-      '',
-      '請勿輸入金額、文字、空白或符號。'
-    ].join('\n'));
-    if (lastFive === null) return;
-    const cleaned = String(lastFive).trim();
-    if (!/^\d{5}$/.test(cleaned)) {
-      alert('請只輸入帳號末 5 碼，必須剛好是 5 個數字，例如：12345');
-      return;
-    }
+  async function reportPayment(recordId) {
+    const cleaned = await requestPaymentLastFive();
+    if (!cleaned) return;
     setBusy(true);
     google.script.run
       .withSuccessHandler(loadData)
       .withFailureHandler(showError)
       .reportPayment(recordId, cleaned);
+  }
+
+  function requestPaymentLastFive() {
+    return new Promise((resolve) => {
+      const existing = document.getElementById('paymentLastFiveModal');
+      if (existing) existing.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'paymentLastFiveModal';
+      modal.className = 'paymentModalOverlay';
+      modal.innerHTML = `
+        <div class="paymentModal" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
+          <h2 id="paymentModalTitle">付款回報</h2>
+          <p class="paymentModalHelp">請輸入匯款帳號末 5 碼</p>
+          <p class="paymentModalExample">只能輸入 5 個數字，例如：12345</p>
+          <input id="paymentLastFiveInput" inputmode="numeric" autocomplete="one-time-code" maxlength="5" placeholder="12345">
+          <div id="paymentLastFiveError" class="paymentModalError">請輸入剛好 5 個數字，不可輸入文字、空白或符號。</div>
+          <div class="paymentModalActions">
+            <button id="paymentLastFiveCancel" class="paymentModalCancel" type="button">取消</button>
+            <button id="paymentLastFiveConfirm" class="paymentModalConfirm" type="button" disabled>確認回報</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+      const input = modal.querySelector('#paymentLastFiveInput');
+      const error = modal.querySelector('#paymentLastFiveError');
+      const confirmButton = modal.querySelector('#paymentLastFiveConfirm');
+      const cancelButton = modal.querySelector('#paymentLastFiveCancel');
+
+      const close = (value) => {
+        modal.remove();
+        resolve(value);
+      };
+
+      input.addEventListener('input', () => {
+        const digits = input.value.replace(/\D/g, '').slice(0, 5);
+        if (input.value !== digits) input.value = digits;
+        const complete = digits.length === 5;
+        confirmButton.disabled = !complete;
+        error.classList.toggle('visible', digits.length > 0 && !complete);
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && /^\d{5}$/.test(input.value)) {
+          close(input.value);
+        }
+        if (event.key === 'Escape') close('');
+      });
+
+      confirmButton.addEventListener('click', () => {
+        if (/^\d{5}$/.test(input.value)) close(input.value);
+      });
+      cancelButton.addEventListener('click', () => close(''));
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) close('');
+      });
+
+      setTimeout(() => input.focus(), 50);
+    });
   }
 
   function renderAdminRows() {
