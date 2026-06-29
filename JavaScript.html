@@ -1,20 +1,23 @@
 <script>
   const state = {
     cases: [],
+    reportCases: [],
     registrations: [],
     lineUserId: '',
     liffProfileName: '',
     currentView: 'registration',
     adminCaseId: '',
+    adminMode: '',
     adminFilter: 'needsAction',
     adminSearch: '',
-    adminSelectedRecords: new Set()
+    adminCaseScope: 'current',
+    adminCaseSearch: '',
+    adminSelectedRecords: new Set(),
+    adminToken: ''
   };
 
-  const ADMIN_PASSWORD = '543';
   const ADMIN_SESSION_KEY = 'donationAdminAuthed';
-  const LAST_FORM_KEY = 'donationLastRegistrationForm';
-
+  const ADMIN_TOKEN_KEY = 'donationAdminToken';
   const els = {};
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -22,7 +25,6 @@
     cacheElements();
     bindEvents();
     updateReceiptModeVisibility();
-    refreshLastFormButton();
     hydrateInitialLineProfile();
     renderLoadingCases();
     loadData();
@@ -61,6 +63,7 @@
       const phoneInput = document.getElementById('representativePhone');
       if (nameInput) nameInput.placeholder = '例如：張大同';
       if (phoneInput) phoneInput.placeholder = '例如：0912-345-678';
+      phoneInput?.closest('.field')?.remove();
     }
 
     const paymentPanel = document.getElementById('paymentMethod')?.closest('.panel');
@@ -84,7 +87,6 @@
       donorPanel.innerHTML = `
         <div class="donorHeader">
           <div class="sectionTitle">捐款芳名清單</div>
-          <button id="lastFormButton" class="lastFormButton hidden" type="button">套用上次填寫</button>
         </div>
         <div class="donorModeButtons">
           <button id="donorModeBulk" class="donorModeButton" type="button">批次加入芳名</button>
@@ -117,29 +119,11 @@
 
     const receiptPanel = document.getElementById('receiptRequired')?.closest('.panel');
     if (receiptPanel) {
-      const title = receiptPanel.querySelector('.sectionTitle');
-      if (title) title.textContent = '收據';
-      const buttons = receiptPanel.querySelectorAll('.receiptOptions .optionButton');
-      if (buttons[0]) buttons[0].textContent = '需要收據';
-      if (buttons[1]) buttons[1].textContent = '不需收據';
-      const receiptOptions = receiptPanel.querySelector('.receiptOptions');
-      if (receiptOptions && !document.getElementById('receiptMode')) {
-        receiptOptions.insertAdjacentHTML('afterend', `
-          <input id="receiptMode" type="hidden" value="representativeTotal">
-          <div id="receiptModePanel" class="receiptModePanel">
-            <div class="receiptModeTitle">收據開立方式</div>
-            <div class="optionButtons receiptModeOptions" data-target="receiptMode">
-              <button class="optionButton selected" type="button" data-value="representativeTotal">代表人+總金額</button>
-              <button class="optionButton" type="button" data-value="eachDonor">每位捐款人單獨開立</button>
-              <button class="optionButton" type="button" data-value="other">其他開立方式</button>
-            </div>
-          </div>
-        `);
-      }
-      const memoLabel = receiptPanel.querySelector('.field span');
-      const memo = document.getElementById('memo');
-      if (memoLabel) memoLabel.textContent = '備註';
-      if (memo) memo.placeholder = '可填轉帳後五碼、收據抬頭或其他補充';
+      receiptPanel.classList.add('submitPanel');
+      receiptPanel.innerHTML = `
+        <button id="submitButton" class="primary" type="button">送出登記</button>
+        <div id="frontResult" class="result"></div>
+      `;
     }
   }
 
@@ -158,7 +142,6 @@
       'receiptRequired',
       'receiptMode',
       'receiptModePanel',
-      'lastFormButton',
       'donorModeBulk',
       'donorModeSingle',
       'bulkDonorPanel',
@@ -174,6 +157,7 @@
       'myRecords',
       'adminRows',
       'adminCaseSummary',
+      'adminCaseSearch',
       'adminWorkArea',
       'adminBackButton',
       'adminCaseTitle',
@@ -222,11 +206,27 @@
     els.representativeName?.addEventListener('input', () => {
       if (els.sameAsRepresentative?.checked) syncSameAsRepresentative();
     });
-    els.lastFormButton?.addEventListener('click', applyLastForm);
     els.submitButton.addEventListener('click', submitRegistration);
     els.refreshButton.addEventListener('click', loadData);
+    document.querySelectorAll('[data-case-scope]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.adminCaseScope = button.dataset.caseScope;
+        state.adminCaseId = '';
+        state.adminMode = '';
+        state.adminSelectedRecords.clear();
+        renderAdminRows();
+      });
+    });
+    els.adminCaseSearch.addEventListener('input', () => {
+      state.adminCaseSearch = els.adminCaseSearch.value.trim();
+      state.adminCaseId = '';
+      state.adminMode = '';
+      state.adminSelectedRecords.clear();
+      renderAdminRows();
+    });
     els.adminBackButton.addEventListener('click', () => {
       state.adminCaseId = '';
+      state.adminMode = '';
       state.adminSelectedRecords.clear();
       renderAdminRows();
     });
@@ -251,10 +251,27 @@
       const card = event.target.closest('[data-admin-case-id]');
       if (!card) return;
       state.adminCaseId = card.dataset.adminCaseId;
+      state.adminMode = '';
       state.adminSelectedRecords.clear();
       renderAdminRows();
     });
     els.adminRows.addEventListener('click', (event) => {
+      const modeButton = event.target.closest('[data-admin-mode]');
+      if (modeButton) {
+        state.adminMode = modeButton.dataset.adminMode;
+        state.adminSelectedRecords.clear();
+        renderAdminRows();
+        return;
+      }
+      if (event.target.closest('#adminHelperCreateButton')) {
+        createHelperBatchFromAdmin();
+        return;
+      }
+      const archiveButton = event.target.closest('[data-case-archive-action]');
+      if (archiveButton) {
+        setCurrentCaseArchiveState(archiveButton.dataset.caseArchiveAction === 'archive');
+        return;
+      }
       const card = event.target.closest('[data-record-id]');
       if (!card) return;
       const recordId = card.dataset.recordId;
@@ -269,6 +286,14 @@
       const button = event.target.closest('[data-action]');
       if (!button) return;
       runBulkAdminAction(button.dataset.action);
+    });
+    els.myRecords.addEventListener('click', (event) => {
+      if (event.target.closest('#quickReportToggle')) {
+        toggleQuickReport();
+      }
+      if (event.target.closest('#quickReportSearchButton')) {
+        searchQuickReportRecords();
+      }
     });
     els.donorList.addEventListener('input', updateTotal);
     els.donorList.addEventListener('click', (event) => {
@@ -311,10 +336,12 @@
       const loggedIn = liff.isLoggedIn ? liff.isLoggedIn() : '未知';
       showLineIdentityMessage(`LIFF 偵錯：init 完成，inClient=${inClient}，loggedIn=${loggedIn}`);
       if (liff.isLoggedIn && !liff.isLoggedIn()) {
-        if (liff.login) {
-          showLineIdentityMessage('LIFF 偵錯：尚未登入，準備導向 LINE 登入...');
+        if (liff.login && inClient === true) {
+          showLineIdentityMessage('尚未取得 LINE 身分，正在嘗試 LINE 登入...');
           liff.login({ redirectUri: window.location.href });
+          return;
         }
+        showLineIdentityMessage('尚未取得 LINE 身分。請從正式 LIFF 連結開啟，或測試時在網址加上 lineUserId。');
         return;
       }
       if (!liff.getProfile) {
@@ -361,6 +388,7 @@
     google.script.run
       .withSuccessHandler((data) => {
         state.cases = data.cases || [];
+        state.reportCases = data.reportCases || data.cases || [];
         state.registrations = data.registrations || [];
         renderCases();
         renderMyRecords();
@@ -370,7 +398,8 @@
       .withFailureHandler(showError)
       .getInitialData({
         lineUserId: state.lineUserId,
-        admin: state.currentView === 'admin' && sessionStorage.getItem(ADMIN_SESSION_KEY) === '1'
+        admin: state.currentView === 'admin' && Boolean(getAdminToken()),
+        adminToken: getAdminToken()
       });
   }
 
@@ -484,47 +513,6 @@
     if (targetId === 'receiptRequired') updateReceiptModeVisibility();
   }
 
-  function refreshLastFormButton() {
-    if (!els.lastFormButton) return;
-    els.lastFormButton.classList.toggle('hidden', !localStorage.getItem(LAST_FORM_KEY));
-  }
-
-  function saveLastForm(payload, rawMemo) {
-    const data = {
-      representativeName: payload.representativeName,
-      representativePhone: payload.representativePhone,
-      paymentMethod: payload.paymentMethod,
-      donors: payload.donors,
-      receiptRequired: payload.receiptRequired,
-      receiptMode: els.receiptMode?.value || 'representativeTotal',
-      memo: rawMemo || ''
-    };
-    localStorage.setItem(LAST_FORM_KEY, JSON.stringify(data));
-    refreshLastFormButton();
-  }
-
-  function applyLastForm() {
-    let data = null;
-    try {
-      data = JSON.parse(localStorage.getItem(LAST_FORM_KEY) || 'null');
-    } catch (error) {
-      localStorage.removeItem(LAST_FORM_KEY);
-    }
-    if (!data) {
-      refreshLastFormButton();
-      return;
-    }
-    els.representativeName.value = data.representativeName || '';
-    els.representativePhone.value = data.representativePhone || '';
-    els.memo.value = data.memo || '';
-    setOptionValue('paymentMethod', data.paymentMethod || 'bankTransfer');
-    setOptionValue('receiptRequired', String(data.receiptRequired !== false));
-    setOptionValue('receiptMode', data.receiptMode || 'representativeTotal');
-    els.donorList.innerHTML = '';
-    (data.donors || []).forEach((donor) => addDonorRow(donor.name, donor.amount));
-    updateTotal();
-  }
-
   function addDonorRow(name = '', amount = '') {
     const fragment = els.donorTemplate.content.cloneNode(true);
     const nameInput = fragment.querySelector('.donorName');
@@ -593,21 +581,22 @@
   }
 
   function submitRegistration() {
+    if (!state.lineUserId) {
+      els.frontResult.innerHTML = '<div class="notice">尚未取得 LINE 身分，請從 LINE 重新開啟後再送出。</div>';
+      return;
+    }
     const donors = readDonors();
     const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
-    const rawMemo = els.memo.value.trim();
-    const receiptNote = els.receiptRequired.value === 'true'
-      ? `收據開立方式：${receiptModeLabel(els.receiptMode?.value)}`
-      : '收據：不需收據';
     const payload = {
       caseId: els.caseSelect.value,
       representativeName: els.representativeName.value.trim(),
-      representativePhone: els.representativePhone.value.trim(),
+      representativePhone: '',
       paymentMethod: els.paymentMethod.value,
       donors,
       totalAmount,
-      receiptRequired: els.receiptRequired.value === 'true',
-      memo: [receiptNote, rawMemo].filter(Boolean).join('\n'),
+      receiptRequired: false,
+      sourceType: 'self_created',
+      memo: '',
       lineUserId: state.lineUserId,
       liffProfileName: state.liffProfileName
     };
@@ -616,7 +605,6 @@
     els.frontResult.innerHTML = '<div class="notice">正在排隊送出登記，請不要關閉或重複按送出。</div>';
     google.script.run
       .withSuccessHandler((result) => {
-        saveLastForm(payload, rawMemo);
         els.frontResult.innerHTML = `
           <div class="success">
             登記完成<br>
@@ -634,8 +622,8 @@
 
   function resetForm() {
     els.representativeName.value = '';
-    els.representativePhone.value = '';
-    els.memo.value = '';
+    if (els.representativePhone) els.representativePhone.value = '';
+    if (els.memo) els.memo.value = '';
     if (els.bulkDonors) els.bulkDonors.value = '';
     if (els.bulkDonorResult) els.bulkDonorResult.textContent = '';
     if (els.singleDonorName) els.singleDonorName.value = '';
@@ -659,16 +647,11 @@
       .filter((record) => isPaymentPending(record.paymentStatus) || isReported(record.paymentStatus))
       .slice(0, 20);
 
-    if (!mine.length) {
-      els.myRecords.innerHTML = '<div class="notice">目前沒有待回報或待確認的紀錄。</div>';
-      return;
-    }
-
-    els.myRecords.innerHTML = mine.map((record) => {
+    const statusHtml = mine.length ? mine.map((record) => {
       const reported = isReported(record.paymentStatus);
       const reportLabel = reported ? '更正回報' : '付款回報';
       return `
-        <article class="recordCard">
+        <article class="recordCard" data-report-host="${escapeAttr(record.recordId)}">
           <div class="recordActionRow">
             <div class="recordInfoPanel">
               <strong>${escapeHtml(record.recordId)}</strong>
@@ -682,76 +665,237 @@
           </div>
         </article>
       `;
-    }).join('');
+    }).join('') : '<div class="notice">目前沒有待回報或待確認的紀錄。</div>';
+
+    els.myRecords.innerHTML = `
+      <div class="myStatusSection">
+        ${statusHtml}
+      </div>
+      ${renderQuickReportPanel()}
+    `;
   }
 
-  async function reportPayment(recordId) {
-    const cleaned = await requestPaymentLastFive();
-    if (!cleaned) return;
-    setBusy(true);
+  function renderQuickReportPanel() {
+    const cases = state.reportCases.length ? state.reportCases : state.cases;
+    const caseOptions = cases.map((item) => `
+      <option value="${escapeAttr(item.caseId)}">${escapeHtml(item.caseId)} ${escapeHtml(item.title || '')}</option>
+    `).join('');
+    return `
+      <section class="quickReportPanel">
+        <button id="quickReportToggle" class="quickReportToggle" type="button">小幫手代填回報專區</button>
+        <div id="quickReportForm" class="quickReportForm hidden">
+          <label class="quickReportField">
+            <span>選擇專案</span>
+            <select id="quickReportCase">${caseOptions}</select>
+          </label>
+          <label class="quickReportField">
+            <span>搜尋芳名</span>
+            <input id="quickReportKeyword" autocomplete="name" placeholder="輸入自己的芳名">
+          </label>
+          <button id="quickReportSearchButton" class="quickReportSearchButton" type="button">搜尋</button>
+          <div id="quickReportResult" class="quickReportResult"></div>
+        </div>
+      </section>
+    `;
+  }
+
+  function toggleQuickReport() {
+    document.getElementById('quickReportForm')?.classList.toggle('hidden');
+  }
+
+  function searchQuickReportRecords() {
+    const caseId = document.getElementById('quickReportCase')?.value || '';
+    const keyword = document.getElementById('quickReportKeyword')?.value.trim() || '';
+    const resultBox = document.getElementById('quickReportResult');
+    if (!resultBox) return;
+    if (!caseId || !keyword) {
+      resultBox.innerHTML = '<div class="notice">請選擇專案並輸入芳名。</div>';
+      return;
+    }
+    resultBox.innerHTML = '<div class="notice">正在搜尋名單...</div>';
     google.script.run
-      .withSuccessHandler(loadData)
-      .withFailureHandler(showError)
-      .reportPayment(recordId, cleaned);
+      .withSuccessHandler((records) => renderQuickReportResults(records || []))
+      .withFailureHandler((error) => {
+        resultBox.innerHTML = `<div class="notice">${escapeHtml(error.message || error)}</div>`;
+      })
+      .searchRegistrationsForReport(caseId, keyword);
   }
 
-  function requestPaymentLastFive() {
-    return new Promise((resolve) => {
-      const existing = document.getElementById('paymentLastFiveModal');
-      if (existing) existing.remove();
+  function renderQuickReportResults(records) {
+    const resultBox = document.getElementById('quickReportResult');
+    if (!resultBox) return;
+    if (!records.length) {
+      resultBox.innerHTML = '<div class="notice">查無資料，請確認專案或芳名。</div>';
+      return;
+    }
+    resultBox.innerHTML = records.map((record) => `
+      <article class="quickResultCard" data-report-host="${escapeAttr(record.recordId)}">
+        <div>
+          <strong>${escapeHtml(record.representativeName || record.recordId)}</strong>
+          <span>${escapeHtml(record.recordId)}｜${money(record.totalAmount)} 元</span>
+          <small>${record.donors.map((donor) => `${escapeHtml(donor.name)} ${money(donor.amount)} 元`).join('、')}</small>
+        </div>
+        <button class="reportButton" type="button" onclick="reportPayment('${escapeAttr(record.recordId)}')">我要回報</button>
+      </article>
+    `).join('');
+  }
 
-      const modal = document.createElement('div');
-      modal.id = 'paymentLastFiveModal';
-      modal.className = 'paymentModalOverlay';
-      modal.innerHTML = `
-        <div class="paymentModal" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
-          <h2 id="paymentModalTitle">付款回報</h2>
-          <p class="paymentModalHelp">請輸入匯款帳號末 5 碼</p>
-          <p class="paymentModalExample">只能輸入 5 個數字，例如：12345</p>
-          <input id="paymentLastFiveInput" inputmode="numeric" autocomplete="one-time-code" maxlength="5" placeholder="12345">
-          <div id="paymentLastFiveError" class="paymentModalError">請輸入剛好 5 個數字，不可輸入文字、空白或符號。</div>
-          <div class="paymentModalActions">
-            <button id="paymentLastFiveCancel" class="paymentModalCancel" type="button">取消</button>
-            <button id="paymentLastFiveConfirm" class="paymentModalConfirm" type="button" disabled>確認回報</button>
+  function reportPayment(recordId) {
+    const existing = document.getElementById(`inlineReportForm-${cssId(recordId)}`);
+    document.querySelectorAll('.inlineReportForm').forEach((form) => form.remove());
+    if (existing) return;
+
+    const host = document.querySelector(`[data-report-host="${escapeAttr(recordId)}"]`)
+      || document.querySelector(`[data-record-id="${escapeAttr(recordId)}"]`);
+    if (!host) return;
+    host.insertAdjacentHTML('beforeend', renderInlineReportForm(recordId));
+    bindInlineReportForm(recordId);
+    setTimeout(() => document.getElementById(`inlineReportLast5-${cssId(recordId)}`)?.focus(), 50);
+  }
+
+  function renderInlineReportForm(recordId) {
+    const id = cssId(recordId);
+    return `
+      <form id="inlineReportForm-${id}" class="inlineReportForm" data-inline-report-id="${escapeAttr(recordId)}">
+        <h3>付款回報</h3>
+        <p>請先輸入匯款帳號末 5 碼；現金請輸入 00000。</p>
+        <label class="inlineReportField">
+          <span>帳號末 5 碼</span>
+          <input id="inlineReportLast5-${id}" inputmode="numeric" autocomplete="one-time-code" maxlength="5" placeholder="12345">
+        </label>
+        <div id="inlineReportLast5Error-${id}" class="inlineReportError">請輸入剛好 5 個數字。</div>
+        <div id="inlineReportSubmitNotice-${id}" class="inlineReportSubmitNotice hidden">正在送出回報，請不要重複點擊。</div>
+        <div id="inlineReceiptStep-${id}" class="reportStep hidden">
+          <div class="reportStepTitle">收據</div>
+          <div class="reportChoiceGrid">
+            <button class="reportChoiceButton" type="button" data-receipt-required="true">需要收據</button>
+            <button class="reportChoiceButton" type="button" data-receipt-required="false">不需要收據</button>
           </div>
         </div>
-      `;
+        <div id="inlineReceiptModeStep-${id}" class="reportStep hidden">
+          <div class="reportStepTitle">收據開立方式</div>
+          <div class="reportChoiceStack">
+            <button class="reportChoiceButton selected" type="button" data-receipt-mode="representativeTotal">代表人+總金額</button>
+            <button class="reportChoiceButton" type="button" data-receipt-mode="eachDonor">每位捐款人單獨開立</button>
+            <button class="reportChoiceButton" type="button" data-receipt-mode="other">其他開立方式</button>
+          </div>
+          <label class="emailInlineField">
+            <span>Email地址：</span>
+            <input id="inlineReceiptEmail-${id}" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com">
+          </label>
+        </div>
+        <div id="inlineReportMemoStep-${id}" class="reportStep hidden">
+          <label class="reportMemoField">
+            <span>備註</span>
+            <textarea id="inlineReportMemo-${id}" rows="3" placeholder="其他補充"></textarea>
+          </label>
+        </div>
+        <div class="inlineReportActions">
+          <button class="paymentModalCancel" type="button" data-inline-cancel>取消</button>
+          <button class="paymentModalConfirm" type="submit" disabled>送出回報</button>
+        </div>
+      </form>
+    `;
+  }
 
-      document.body.appendChild(modal);
-      const input = modal.querySelector('#paymentLastFiveInput');
-      const error = modal.querySelector('#paymentLastFiveError');
-      const confirmButton = modal.querySelector('#paymentLastFiveConfirm');
-      const cancelButton = modal.querySelector('#paymentLastFiveCancel');
+  function bindInlineReportForm(recordId) {
+    const id = cssId(recordId);
+    const form = document.getElementById(`inlineReportForm-${id}`);
+    const input = document.getElementById(`inlineReportLast5-${id}`);
+    const error = document.getElementById(`inlineReportLast5Error-${id}`);
+    const receiptStep = document.getElementById(`inlineReceiptStep-${id}`);
+    const receiptModeStep = document.getElementById(`inlineReceiptModeStep-${id}`);
+    const reportMemoStep = document.getElementById(`inlineReportMemoStep-${id}`);
+    const receiptEmailInput = document.getElementById(`inlineReceiptEmail-${id}`);
+    const reportMemoInput = document.getElementById(`inlineReportMemo-${id}`);
+    const submitButton = form.querySelector('[type="submit"]');
+    const submitNotice = document.getElementById(`inlineReportSubmitNotice-${id}`);
+    let receiptRequired = null;
+    let receiptMode = 'representativeTotal';
+    let submitting = false;
 
-      const close = (value) => {
-        modal.remove();
-        resolve(value);
-      };
+    const updateState = () => {
+      if (submitting) {
+        submitButton.disabled = true;
+        return;
+      }
+      const hasLast5 = /^\d{5}$/.test(input.value);
+      receiptStep.classList.toggle('hidden', !hasLast5);
+      if (!hasLast5) {
+        receiptRequired = null;
+        receiptModeStep.classList.add('hidden');
+        reportMemoStep.classList.add('hidden');
+        form.querySelectorAll('[data-receipt-required]').forEach((item) => item.classList.remove('selected'));
+      }
+      const receiptChosen = receiptRequired !== null;
+      receiptModeStep.classList.toggle('hidden', !(hasLast5 && receiptRequired === true));
+      reportMemoStep.classList.toggle('hidden', !(hasLast5 && receiptChosen));
+      const emailOk = receiptRequired !== true || receiptEmailInput.value.trim();
+      submitButton.disabled = !(hasLast5 && receiptChosen && emailOk);
+    };
 
-      input.addEventListener('input', () => {
-        const digits = input.value.replace(/\D/g, '').slice(0, 5);
-        if (input.value !== digits) input.value = digits;
-        const complete = digits.length === 5;
-        confirmButton.disabled = !complete;
-        error.classList.toggle('visible', digits.length > 0 && !complete);
+    input.addEventListener('input', () => {
+      const digits = input.value.replace(/\D/g, '').slice(0, 5);
+      if (input.value !== digits) input.value = digits;
+      error.classList.toggle('visible', digits.length > 0 && digits.length < 5);
+      updateState();
+    });
+
+    form.querySelectorAll('[data-receipt-required]').forEach((button) => {
+      button.addEventListener('click', () => {
+        receiptRequired = button.dataset.receiptRequired === 'true';
+        form.querySelectorAll('[data-receipt-required]').forEach((item) => {
+          item.classList.toggle('selected', item === button);
+        });
+        updateState();
       });
+    });
 
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' && /^\d{5}$/.test(input.value)) {
-          close(input.value);
-        }
-        if (event.key === 'Escape') close('');
+    form.querySelectorAll('[data-receipt-mode]').forEach((button) => {
+      button.addEventListener('click', () => {
+        receiptMode = button.dataset.receiptMode;
+        form.querySelectorAll('[data-receipt-mode]').forEach((item) => {
+          item.classList.toggle('selected', item === button);
+        });
       });
+    });
 
-      confirmButton.addEventListener('click', () => {
-        if (/^\d{5}$/.test(input.value)) close(input.value);
+    receiptEmailInput.addEventListener('input', updateState);
+    form.querySelector('[data-inline-cancel]').addEventListener('click', () => form.remove());
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (submitButton.disabled || submitting) return;
+      submitting = true;
+      submitButton.disabled = true;
+      submitButton.textContent = '送出中';
+      submitNotice.classList.remove('hidden');
+      form.classList.add('submitting');
+      form.querySelectorAll('input, textarea, button').forEach((control) => {
+        control.disabled = true;
       });
-      cancelButton.addEventListener('click', () => close(''));
-      modal.addEventListener('click', (event) => {
-        if (event.target === modal) close('');
-      });
-
-      setTimeout(() => input.focus(), 50);
+      setBusy(true);
+      google.script.run
+        .withSuccessHandler(loadData)
+        .withFailureHandler((error) => {
+          submitting = false;
+          form.classList.remove('submitting');
+          submitNotice.classList.add('hidden');
+          submitButton.textContent = '送出回報';
+          form.querySelectorAll('input, textarea, button').forEach((control) => {
+            control.disabled = false;
+          });
+          updateState();
+          showError(error);
+        })
+        .reportRegistrationDetails(recordId, {
+          paymentLast5: input.value,
+          receiptRequired,
+          receiptMode,
+          receiptEmail: receiptEmailInput.value.trim(),
+          memo: reportMemoInput.value.trim(),
+          lineUserId: state.lineUserId,
+          liffProfileName: state.liffProfileName
+        });
     });
   }
 
@@ -762,29 +906,56 @@
   }
 
   function renderAdminCaseSummary() {
-    const caseIds = Array.from(new Set([
+    document.querySelectorAll('[data-case-scope]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.caseScope === state.adminCaseScope);
+    });
+    if (els.adminCaseSearch) els.adminCaseSearch.value = state.adminCaseSearch;
+
+    let caseIds = Array.from(new Set([
       ...state.cases.map((item) => item.caseId),
+      ...state.reportCases.map((item) => item.caseId),
       ...state.registrations.map((record) => record.caseId)
     ])).filter(Boolean);
 
+    caseIds = caseIds.filter((caseId) => {
+      const caseInfo = state.reportCases.find((item) => item.caseId === caseId)
+        || state.cases.find((item) => item.caseId === caseId)
+        || {};
+      const records = state.registrations.filter((record) => record.caseId === caseId);
+      const archived = caseInfo.archived === true;
+      if (state.adminCaseScope === 'history' && !archived) return false;
+      if (state.adminCaseScope !== 'history' && archived) return false;
+      if (state.adminCaseScope !== 'history' && !shouldShowAdminCase(caseInfo, records)) return false;
+      return matchesAdminCaseSearch(caseInfo, records);
+    });
+
     if (!caseIds.length) {
-      els.adminCaseSummary.innerHTML = '<div class="notice">目前沒有專案資料。</div>';
+      els.adminCaseSummary.innerHTML = `<div class="notice">${state.adminCaseScope === 'history' ? '目前沒有符合條件的歷史專案。' : '目前沒有符合條件的目前專案。'}</div>`;
       return;
     }
 
     els.adminCaseSummary.innerHTML = caseIds.map((caseId) => {
-      const caseInfo = state.cases.find((item) => item.caseId === caseId) || {};
+      const caseInfo = state.reportCases.find((item) => item.caseId === caseId)
+        || state.cases.find((item) => item.caseId === caseId)
+        || {};
       const records = state.registrations.filter((record) => record.caseId === caseId);
       const active = state.adminCaseId === caseId;
       const pending = records.filter((record) => isPaymentPending(record.paymentStatus)).length;
       const reported = records.filter((record) => isReported(record.paymentStatus)).length;
-      const receiptPending = records.filter((record) => isReceiptPending(record.receiptStatus)).length;
+      const receiptPending = records.filter((record) => isPaymentConfirmed(record.paymentStatus) && isReceiptPending(record.receiptStatus)).length;
       const done = records.filter((record) => isDone(record.paymentStatus) && !isReceiptPending(record.receiptStatus)).length;
       const needAction = records.filter(needsAdminAction).length;
+      const statusLabel = caseStatusLabel(caseInfo);
+      const statusKind = caseStatusKind(caseInfo);
       return `
-        <button class="adminCaseCard ${active ? 'active' : ''}" type="button" data-admin-case-id="${escapeAttr(caseId)}">
+        <button class="adminCaseCard ${active ? 'active' : ''} ${escapeAttr(statusKind)}" type="button" data-admin-case-id="${escapeAttr(caseId)}">
           <strong>${escapeHtml(caseId)} ${escapeHtml(caseInfo.title || '')}</strong>
+          <em>${escapeHtml(statusLabel)}</em>
           <span>需處理 ${needAction} 筆｜總登記 ${records.length} 筆</span>
+          <div class="adminCaseMoney">
+            <span>目標金額 ${money(caseInfo.targetAmount)} 元</span>
+            <span>目標餘額 ${money(caseInfo.remainingAmount)} 元</span>
+          </div>
           <div class="adminCaseStats">
             <span>待付款 ${pending}</span>
             <span>已回報 ${reported}</span>
@@ -796,6 +967,58 @@
     }).join('');
   }
 
+  function matchesAdminCaseSearch(caseInfo, records) {
+    const keyword = state.adminCaseSearch.toLowerCase();
+    if (!keyword) return true;
+    const donorText = records.map((record) => [
+      record.representativeName,
+      record.donors.map((donor) => donor.name).join(' ')
+    ].join(' ')).join(' ');
+    return [
+      caseInfo.caseId,
+      caseInfo.title,
+      caseInfo.note,
+      donorText
+    ].some((value) => String(value || '').toLowerCase().includes(keyword));
+  }
+
+  function caseStatusLabel(caseInfo) {
+    const kind = caseStatusKind(caseInfo);
+    if (kind === 'history') return '歷史專案';
+    if (kind === 'full') return '已額滿';
+    if (kind === 'closed') return caseInfo.status || '未開放';
+    return '開放中';
+  }
+
+  function caseStatusKind(caseInfo) {
+    if (caseInfo.archived) return 'history';
+    if (!isCaseOpen(caseInfo)) {
+      return Number(caseInfo.remainingAmount || 0) <= 0 ? 'full' : 'closed';
+    }
+    return 'open';
+  }
+
+  function shouldShowAdminCase(caseInfo, records) {
+    const hasWork = records.some((record) => (
+      isPaymentPending(record.paymentStatus)
+      || isReported(record.paymentStatus)
+      || isNeedInfo(record.paymentStatus)
+      || (isPaymentConfirmed(record.paymentStatus) && isReceiptPending(record.receiptStatus))
+    ));
+    return isCaseOpen(caseInfo) || hasWork;
+  }
+
+  function isCaseOpen(caseInfo) {
+    const opened = String(caseInfo.opened ?? '').trim().toLowerCase();
+    const status = String(caseInfo.status || '').trim();
+    if (['已結案', '結案', '關閉', '已關閉', '已額滿'].includes(status)) return false;
+    return caseInfo.opened === true
+      || opened === 'true'
+      || opened === '是'
+      || opened === '開放'
+      || opened === '開放中';
+  }
+
   function renderAdminWorkArea() {
     const hasCase = Boolean(state.adminCaseId);
     els.adminWorkArea.classList.toggle('hidden', !hasCase);
@@ -804,14 +1027,37 @@
       return;
     }
 
-    const caseInfo = state.cases.find((item) => item.caseId === state.adminCaseId) || {};
+    const caseInfo = state.reportCases.find((item) => item.caseId === state.adminCaseId)
+      || state.cases.find((item) => item.caseId === state.adminCaseId)
+      || {};
+    if (caseInfo.archived && state.adminMode === 'helper') {
+      state.adminMode = '';
+    }
     const records = getVisibleAdminRecords();
     els.adminCaseTitle.textContent = `${state.adminCaseId} ${caseInfo.title || ''}`;
-    els.adminCaseMeta.textContent = `目前顯示 ${records.length} 筆，已選 ${state.adminSelectedRecords.size} 筆`;
+    els.adminCaseMeta.textContent = state.adminMode
+      ? `目前模式：${state.adminMode === 'helper' ? '小幫手代填' : '資料處理'}`
+      : '請選擇要執行的工作';
     els.adminSearch.value = state.adminSearch;
     document.querySelectorAll('.adminFilterButton').forEach((button) => {
       button.classList.toggle('active', button.dataset.filter === state.adminFilter);
     });
+    const dataMode = state.adminMode === 'data';
+    document.querySelector('.adminFilters')?.classList.toggle('hidden', !dataMode);
+    els.adminSearch.classList.toggle('hidden', !dataMode);
+    document.querySelector('.adminSelectLine')?.classList.toggle('hidden', !dataMode);
+
+    if (!state.adminMode) {
+      els.adminRows.innerHTML = renderAdminModeChooser();
+      return;
+    }
+
+    if (state.adminMode === 'helper') {
+      els.adminRows.innerHTML = renderHelperBatchPanel();
+      return;
+    }
+
+    els.adminCaseMeta.textContent = `資料處理：目前顯示 ${records.length} 筆，已選 ${state.adminSelectedRecords.size} 筆`;
 
     if (!records.length) {
       els.adminRows.innerHTML = '<div class="notice">目前篩選條件下沒有資料。</div>';
@@ -826,7 +1072,7 @@
           <div class="adminCheck">${selected ? '✓' : ''}</div>
           <div class="adminRecordMain">
             <strong>${escapeHtml(record.recordId)}｜${money(record.totalAmount)} 元</strong>
-            <span>${escapeHtml(record.representativeName)}　${escapeHtml(record.representativePhone || '')}</span>
+            <span>${escapeHtml(record.representativeName)}　${sourceTypeLabel(record.sourceType)}</span>
             <small>${record.donors.map((donor) => `${escapeHtml(donor.name)} ${money(donor.amount)}`).join('、')}</small>
           </div>
           <div class="adminRecordStatus">
@@ -838,6 +1084,130 @@
     }).join('');
   }
 
+  function renderAdminModeChooser() {
+    return `
+      <section class="adminModeChooser">
+        ${state.adminCaseScope === 'history' ? '' : `
+          <button class="adminModeButton helper" type="button" data-admin-mode="helper">
+            <strong>小幫手代填</strong>
+            <span>批次建立芳名與金額，讓捐款者之後到回報區搜尋。</span>
+          </button>
+        `}
+        <button class="adminModeButton data" type="button" data-admin-mode="data">
+          <strong>資料處理</strong>
+          <span>對帳、收據、待補件、取消與批次修正。</span>
+        </button>
+        <button class="adminModeButton archive" type="button" data-case-archive-action="${state.adminCaseScope === 'history' ? 'restore' : 'archive'}">
+          <strong>${state.adminCaseScope === 'history' ? '恢復為目前專案' : '歸入歷史專案'}</strong>
+          <span>${state.adminCaseScope === 'history' ? '讓此專案重新出現在目前專案列表。' : '把專案從目前列表收起，之後可在歷史專案搜尋恢復。'}</span>
+        </button>
+      </section>
+    `;
+  }
+
+  function renderHelperBatchPanel() {
+    const caseInfo = state.reportCases.find((item) => item.caseId === state.adminCaseId)
+      || state.cases.find((item) => item.caseId === state.adminCaseId)
+      || {};
+    const remaining = Number(caseInfo.remainingAmount || 0);
+    const canCreate = isCaseOpen(caseInfo) && remaining > 0;
+    return `
+      <section class="adminHelperPanel ${canCreate ? '' : 'locked'}">
+        <div>
+          <strong>小幫手批次代填</strong>
+          <span>目前專案：${escapeHtml(state.adminCaseId)}。每位芳名會建立成一筆待回報資料。</span>
+          <span class="helperBalance">目標金額：${money(caseInfo.targetAmount)} 元</span>
+          <span class="helperBalance">目前可登記餘額：${money(remaining)} 元</span>
+        </div>
+        <textarea id="adminHelperBatchInput" rows="4" placeholder="王小明100、李小華200" ${canCreate ? '' : 'disabled'}></textarea>
+        <button id="adminHelperCreateButton" class="secondaryAction" type="button" ${canCreate ? '' : 'disabled'}>${canCreate ? '建立代填資料' : '專案已額滿或未開放'}</button>
+        <div id="adminHelperBatchResult" class="helperBatchResult">${canCreate ? '' : '<div class="notice">此專案目前不能新增代填資料，但仍可進行資料處理。</div>'}</div>
+      </section>
+    `;
+  }
+
+  function createHelperBatchFromAdmin() {
+    if (!state.adminCaseId) return;
+    if (!state.lineUserId) {
+      document.getElementById('adminHelperBatchResult').textContent = '尚未取得小幫手 LINE 身分，請從 LINE 重新開啟。';
+      return;
+    }
+    const input = document.getElementById('adminHelperBatchInput');
+    const result = document.getElementById('adminHelperBatchResult');
+    const text = input?.value.trim() || '';
+    const donors = text
+      .split(/[、，,；;\n\r]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map(parseDonorToken)
+      .filter(Boolean);
+    if (!donors.length) {
+      result.textContent = '請用「姓名100、姓名200」格式輸入。';
+      return;
+    }
+    result.textContent = '正在建立代填資料...';
+    const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
+    result.innerHTML = `
+      <div class="notice">目前查詢餘額中，準備建立 ${donors.length} 筆，合計 ${money(totalAmount)} 元。請不要重複點擊。</div>
+    `;
+    const button = document.getElementById('adminHelperCreateButton');
+    const panel = button?.closest('.adminHelperPanel');
+    panel?.classList.add('submitting');
+    if (button) {
+      button.disabled = true;
+      button.textContent = '建立中';
+    }
+    if (input) input.disabled = true;
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler((response) => {
+        const remaining = Number(response.remainingAmount || 0);
+        result.innerHTML = `
+          <div class="success">
+            建立成功：${response.records.length} 筆，合計 ${money(response.totalAmount)} 元。<br>
+            最新可登記餘額：${money(remaining)} 元。
+          </div>
+        `;
+        input.value = '';
+        setTimeout(loadData, 1300);
+      })
+      .withFailureHandler((error) => {
+        panel?.classList.remove('submitting');
+        if (button) {
+          button.disabled = false;
+          button.textContent = '建立代填資料';
+        }
+        if (input) input.disabled = false;
+        result.innerHTML = `<div class="notice">${escapeHtml(error.message || error)}</div>`;
+        setBusy(false);
+      })
+      .createHelperRegistrations({
+        caseId: state.adminCaseId,
+        donors,
+        paymentMethod: 'bankTransfer',
+        lineUserId: state.lineUserId,
+        liffProfileName: state.liffProfileName,
+        adminToken: getAdminToken()
+      });
+  }
+
+  function setCurrentCaseArchiveState(archive) {
+    if (!state.adminCaseId) return;
+    const actionText = archive ? '歸入歷史專案' : '恢復為目前專案';
+    if (!confirm(`確定要將 ${state.adminCaseId} ${actionText}？`)) return;
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(() => {
+        state.adminCaseScope = archive ? 'history' : 'current';
+        state.adminCaseId = '';
+        state.adminMode = '';
+        state.adminSelectedRecords.clear();
+        loadData();
+      })
+      .withFailureHandler(showError)
+      .setCaseArchived(state.adminCaseId, archive, getAdminToken());
+  }
+
   function getVisibleAdminRecords() {
     const keyword = state.adminSearch.toLowerCase();
     return state.registrations
@@ -846,7 +1216,7 @@
         if (state.adminFilter === 'all') return true;
         if (state.adminFilter === 'needsAction') return needsAdminAction(record);
         if (state.adminFilter === 'reported') return isReported(record.paymentStatus);
-        if (state.adminFilter === 'receiptPending') return isReceiptPending(record.receiptStatus);
+        if (state.adminFilter === 'receiptPending') return isPaymentConfirmed(record.paymentStatus) && isReceiptPending(record.receiptStatus);
         if (state.adminFilter === 'pending') return isPaymentPending(record.paymentStatus);
         return true;
       })
@@ -865,11 +1235,27 @@
 
   function needsAdminAction(record) {
     return isReported(record.paymentStatus)
-      || (isDone(record.paymentStatus) && isReceiptPending(record.receiptStatus));
+      || isNeedInfo(record.paymentStatus)
+      || (isPaymentConfirmed(record.paymentStatus) && isReceiptPending(record.receiptStatus));
+  }
+
+  function sourceTypeLabel(value) {
+    return {
+      self_created: '前台本人登錄',
+      helper_created: '小幫手代填',
+      admin_created: '後台建立',
+      前台本人登錄: '前台本人登錄',
+      小幫手代填: '小幫手代填',
+      後台建立: '後台建立'
+    }[value] || '前台本人登錄';
   }
 
   function isReceiptPending(value) {
     return value === 'pending' || value === '待處理' || value === '';
+  }
+
+  function isNeedInfo(value) {
+    return value === 'needInfo' || value === '待補件' || value === '資料待補';
   }
 
   function selectVisibleAdminRecords() {
@@ -881,7 +1267,7 @@
 
   function renderAdminBulkBar() {
     const selected = Array.from(state.adminSelectedRecords);
-    els.adminBulkBar.classList.toggle('hidden', !selected.length || state.currentView !== 'admin');
+    els.adminBulkBar.classList.toggle('hidden', !selected.length || state.currentView !== 'admin' || state.adminMode !== 'data');
     els.adminBulkCount.textContent = `已選 ${selected.length} 筆`;
   }
 
@@ -894,12 +1280,13 @@
       receiptDone: '收據完成',
       paymentPending: '退回待付款',
       paymentReported: '退回已回報',
+      paymentNeedInfo: '待補件',
       receiptPending: '收據待處理',
       receiptNotRequired: '不需收據',
       cancel: '取消登記'
     };
     const label = actionLabels[action] || '批次操作';
-    const needsMemo = ['paymentPending', 'paymentReported', 'receiptPending', 'receiptNotRequired', 'cancel'].includes(action);
+    const needsMemo = ['paymentPending', 'paymentReported', 'paymentNeedInfo', 'receiptPending', 'receiptNotRequired', 'cancel'].includes(action);
     const memo = needsMemo
       ? (prompt(`${label}：請輸入原因（將套用 ${recordIds.length} 筆，可空白）`) || '')
       : '';
@@ -926,19 +1313,21 @@
         .withFailureHandler(reject);
 
       if (action === 'paid') {
-        runner.updatePayment(recordId, 'paid', todayValue);
+        runner.updatePayment(recordId, 'paid', todayValue, getAdminToken());
       } else if (action === 'receiptDone') {
-        runner.updateReceipt(recordId, 'done', '', todayValue);
+        runner.updateReceipt(recordId, 'done', '', todayValue, getAdminToken());
       } else if (action === 'paymentPending') {
-        runner.resetPaymentStatus(recordId, 'pending', memo);
+        runner.resetPaymentStatus(recordId, 'pending', memo, getAdminToken());
       } else if (action === 'paymentReported') {
-        runner.resetPaymentStatus(recordId, 'reported', memo);
+        runner.resetPaymentStatus(recordId, 'reported', memo, getAdminToken());
+      } else if (action === 'paymentNeedInfo') {
+        runner.resetPaymentStatus(recordId, 'needInfo', memo, getAdminToken());
       } else if (action === 'receiptPending') {
-        runner.resetReceiptStatus(recordId, 'pending', memo);
+        runner.resetReceiptStatus(recordId, 'pending', memo, getAdminToken());
       } else if (action === 'receiptNotRequired') {
-        runner.resetReceiptStatus(recordId, 'notRequired', memo);
+        runner.resetReceiptStatus(recordId, 'notRequired', memo, getAdminToken());
       } else if (action === 'cancel') {
-        runner.cancelRegistration(recordId, memo);
+        runner.cancelRegistration(recordId, memo, getAdminToken());
       } else {
         reject(new Error('未知的批次操作'));
       }
@@ -950,7 +1339,7 @@
     google.script.run
       .withSuccessHandler(loadData)
       .withFailureHandler(showError)
-      .updatePayment(recordId, 'paid', today());
+      .updatePayment(recordId, 'paid', today(), getAdminToken());
   }
 
   function markReceiptDone(recordId) {
@@ -960,7 +1349,7 @@
     google.script.run
       .withSuccessHandler(loadData)
       .withFailureHandler(showError)
-      .updateReceipt(recordId, 'done', receiptNo, today());
+      .updateReceipt(recordId, 'done', receiptNo, today(), getAdminToken());
   }
 
   function cancelRegistration(recordId) {
@@ -970,7 +1359,7 @@
     google.script.run
       .withSuccessHandler(loadData)
       .withFailureHandler(showError)
-      .cancelRegistration(recordId, cancelMemo);
+      .cancelRegistration(recordId, cancelMemo, getAdminToken());
   }
 
   function resetPayment(recordId, status) {
@@ -986,7 +1375,7 @@
     google.script.run
       .withSuccessHandler(loadData)
       .withFailureHandler(showError)
-      .resetPaymentStatus(recordId, status, memo);
+      .resetPaymentStatus(recordId, status, memo, getAdminToken());
   }
 
   function resetReceipt(recordId, status) {
@@ -1002,7 +1391,7 @@
     google.script.run
       .withSuccessHandler(loadData)
       .withFailureHandler(showError)
-      .resetReceiptStatus(recordId, status, memo);
+      .resetReceiptStatus(recordId, status, memo, getAdminToken());
   }
 
   function switchView(view) {
@@ -1019,7 +1408,7 @@
   }
 
   function openAdminWithPassword() {
-    if (sessionStorage.getItem(ADMIN_SESSION_KEY) === '1') {
+    if (getAdminToken()) {
       switchView('admin');
       loadData();
       return;
@@ -1028,14 +1417,41 @@
     const password = prompt('請輸入後台密碼');
     if (password === null) return;
 
-    if (password === ADMIN_PASSWORD) {
-      sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
-      switchView('admin');
-      loadData();
-      return;
-    }
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler((response) => {
+        const token = response && response.token;
+        if (!token) {
+          clearAdminSession();
+          alert('後台驗證失敗，請再試一次。');
+          setBusy(false);
+          return;
+        }
+        state.adminToken = token;
+        sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
+        sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+        switchView('admin');
+        loadData();
+      })
+      .withFailureHandler((error) => {
+        clearAdminSession();
+        setBusy(false);
+        alert(error.message || error || '密碼錯誤');
+      })
+      .verifyAdminPassword(password, state.lineUserId);
+  }
 
-    alert('密碼錯誤');
+  function getAdminToken() {
+    if (state.adminToken) return state.adminToken;
+    const token = sessionStorage.getItem(ADMIN_TOKEN_KEY) || '';
+    if (token) state.adminToken = token;
+    return token;
+  }
+
+  function clearAdminSession() {
+    state.adminToken = '';
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    sessionStorage.removeItem(ADMIN_TOKEN_KEY);
   }
 
   function statusPill(value, type) {
@@ -1048,9 +1464,12 @@
       notRequired: '不需收據',
       cancelled: '已取消',
       canceled: '已取消',
+      needInfo: '待補件',
       待付款: '待付款',
       已回報: '已回報',
       已確認入帳: '已確認入帳',
+      待補件: '待補件',
+      資料待補: '待補件',
       待處理: '待處理',
       收據已處理: '收據已處理',
       不需收據: '不需收據',
@@ -1061,6 +1480,8 @@
     let pillClass = 'pending';
     if (isCancelled(text)) {
       pillClass = 'cancelled';
+    } else if (isNeedInfo(text)) {
+      pillClass = 'paymentPending';
     } else if (isReported(text)) {
       pillClass = 'reported';
     } else if (isDone(text)) {
@@ -1078,6 +1499,10 @@
 
   function isReported(value) {
     return value === 'reported' || value === '已回報';
+  }
+
+  function isPaymentConfirmed(value) {
+    return value === 'paid' || value === '已確認入帳' || value === '已入帳';
   }
 
   function isCancelled(value) {
@@ -1100,7 +1525,11 @@
 
   function showError(error) {
     setBusy(false);
-    const message = escapeHtml(error.message || error);
+    const rawMessage = error.message || error;
+    const message = escapeHtml(rawMessage);
+    if (/Admin authorization required|Admin session expired/i.test(String(rawMessage || ''))) {
+      clearAdminSession();
+    }
     if (state.currentView === 'registration') {
       els.frontResult.innerHTML = `<div class="notice">${message}</div>`;
     } else if (state.currentView === 'report') {
@@ -1129,5 +1558,9 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replaceAll('`', '&#096;');
+  }
+
+  function cssId(value) {
+    return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_');
   }
 </script>

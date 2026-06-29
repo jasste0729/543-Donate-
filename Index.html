@@ -122,6 +122,13 @@
             </div>
             <button id="refreshButton" type="button">重新整理</button>
           </div>
+          <div class="adminCaseListControls">
+            <div class="adminCaseTabs" aria-label="專案分類">
+              <button id="adminCurrentCasesButton" class="adminCaseTab active" type="button" data-case-scope="current">目前專案</button>
+              <button id="adminHistoryCasesButton" class="adminCaseTab" type="button" data-case-scope="history">歷史專案</button>
+            </div>
+            <input id="adminCaseSearch" class="adminCaseSearch" type="search" placeholder="搜尋專案代號、名稱或代表人">
+          </div>
           <div id="adminCaseSummary" class="adminCaseSummary"></div>
           <div id="adminWorkArea" class="adminWorkArea hidden">
             <div class="adminToolbar">
@@ -158,6 +165,7 @@
         <button class="softButton" type="button" data-action="paymentReported">退回已回報</button>
         <button class="softButton" type="button" data-action="receiptPending">收據待處理</button>
         <button class="softButton" type="button" data-action="receiptNotRequired">不需收據</button>
+        <button class="needInfoButton" type="button" data-action="paymentNeedInfo">待補件</button>
         <button class="cancelButton" type="button" data-action="cancel">取消登記</button>
       </div>
     </div>

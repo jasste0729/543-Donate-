@@ -19,7 +19,8 @@ const HEADERS = {
     '狀態',
     '備註',
     '建立時間',
-    '更新時間'
+    '更新時間',
+    '是否歷史專案'
   ],
   registrations: [
     '登記編號',
@@ -39,7 +40,15 @@ const HEADERS = {
     '更新時間',
     'LINE使用者ID',
     'LINE顯示名稱',
-    '備註'
+    '備註',
+    '資料來源',
+    '回報者LINE使用者ID',
+    '回報者LINE顯示名稱',
+    '付款帳號末五碼',
+    '收據開立方式',
+    'Email',
+    '建立者LINE使用者ID',
+    '建立者LINE顯示名稱'
   ]
 };
 
@@ -53,6 +62,7 @@ const FIELD_ALIASES = {
   note: ['備註', 'note'],
   createdAt: ['建立時間', '登記時間', 'createdAt'],
   updatedAt: ['更新時間', 'updatedAt'],
+  archived: ['是否歷史專案', 'archived'],
   recordId: ['登記編號', 'recordId'],
   representativeName: ['代表人姓名', 'representativeName'],
   representativePhone: ['代表人手機', 'representativePhone'],
@@ -67,6 +77,14 @@ const FIELD_ALIASES = {
   receiptDate: ['收據日期', 'receiptDate'],
   lineUserId: ['LINE使用者ID', 'lineUserId'],
   liffProfileName: ['LINE顯示名稱', 'liffProfileName'],
+  sourceType: ['資料來源', 'sourceType'],
+  reportedLineUserId: ['回報者LINE使用者ID', 'reportedLineUserId'],
+  reportedProfileName: ['回報者LINE顯示名稱', 'reportedProfileName'],
+  paymentLast5: ['付款帳號末五碼', 'paymentLast5'],
+  receiptMode: ['收據開立方式', 'receiptMode'],
+  receiptEmail: ['Email', 'receiptEmail'],
+  createdByLineUserId: ['建立者LINE使用者ID', 'createdByLineUserId'],
+  createdByProfileName: ['建立者LINE顯示名稱', 'createdByProfileName'],
   memo: ['備註', 'memo']
 };
 
@@ -78,6 +96,9 @@ const PAYMENT_METHOD_LABELS = {
 };
 
 const REGISTRATION_QUEUE_WAIT_MS = 45000;
+const ADMIN_PASSWORD_HASH_PROPERTY = 'ADMIN_PASSWORD_HASH';
+const ADMIN_SESSION_TTL_SECONDS = 6 * 60 * 60;
+const ADMIN_SESSION_CACHE_PREFIX = 'admin_session_';
 
 function doGet(e) {
   const template = HtmlService.createTemplateFromFile('Index');
@@ -89,6 +110,74 @@ function doGet(e) {
     .evaluate()
     .setTitle('543 捐款回報')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function configureAdminPassword_(password) {
+  const cleanPassword = String(password || '').trim();
+  if (cleanPassword.length < 12) {
+    throw new Error('Admin password must be at least 12 characters.');
+  }
+  PropertiesService.getScriptProperties().setProperty(ADMIN_PASSWORD_HASH_PROPERTY, sha256Hex_(cleanPassword));
+  return { ok: true };
+}
+
+function verifyAdminPassword(password, lineUserId) {
+  const expectedHash = PropertiesService.getScriptProperties().getProperty(ADMIN_PASSWORD_HASH_PROPERTY);
+  if (!expectedHash) {
+    throw new Error('ADMIN_PASSWORD_HASH is not configured.');
+  }
+
+  const passwordHash = sha256Hex_(String(password || ''));
+  if (!constantTimeEquals_(passwordHash, expectedHash)) {
+    throw new Error('Invalid admin password.');
+  }
+
+  const token = Utilities.getUuid() + Utilities.getUuid();
+  CacheService.getScriptCache().put(
+    getAdminSessionCacheKey_(token),
+    JSON.stringify({
+      lineUserId: String(lineUserId || ''),
+      createdAt: new Date().toISOString()
+    }),
+    ADMIN_SESSION_TTL_SECONDS
+  );
+  return { ok: true, token, expiresIn: ADMIN_SESSION_TTL_SECONDS };
+}
+
+function requireAdmin_(token) {
+  const cleanToken = String(token || '').trim();
+  if (!cleanToken) {
+    throw new Error('Admin authorization required.');
+  }
+  const session = CacheService.getScriptCache().get(getAdminSessionCacheKey_(cleanToken));
+  if (!session) {
+    throw new Error('Admin session expired. Please sign in again.');
+  }
+  return JSON.parse(session);
+}
+
+function getAdminSessionCacheKey_(token) {
+  return ADMIN_SESSION_CACHE_PREFIX + sha256Hex_(String(token || ''));
+}
+
+function sha256Hex_(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value), Utilities.Charset.UTF_8)
+    .map((byte) => {
+      const unsigned = byte < 0 ? byte + 256 : byte;
+      return ('0' + unsigned.toString(16)).slice(-2);
+    })
+    .join('');
+}
+
+function constantTimeEquals_(left, right) {
+  left = String(left || '');
+  right = String(right || '');
+  let diff = left.length ^ right.length;
+  const maxLength = Math.max(left.length, right.length);
+  for (let i = 0; i < maxLength; i += 1) {
+    diff |= (left.charCodeAt(i) || 0) ^ (right.charCodeAt(i) || 0);
+  }
+  return diff === 0;
 }
 
 function include(filename) {
@@ -104,9 +193,9 @@ function setupSheets() {
   if (casesSheet.getLastRow() === 1) {
     const now = new Date();
     casesSheet.getRange(2, 1, 3, HEADERS.cases.length).setValues([
-      ['E105', '郵振畢先生', 60000, 8200, true, '開放中', '示範個案', now, now],
-      ['E106', '李美玲女士', 50000, 12000, true, '開放中', '示範個案', now, now],
-      ['E107', '王小華同學', 40000, 5000, true, '開放中', '示範個案', now, now]
+      ['E105', '郵振畢先生', 60000, 8200, true, '開放中', '示範個案', now, now, '否'],
+      ['E106', '李美玲女士', 50000, 12000, true, '開放中', '示範個案', now, now, '否'],
+      ['E107', '王小華同學', 40000, 5000, true, '開放中', '示範個案', now, now, '否']
     ]);
   }
 
@@ -121,36 +210,89 @@ function getInitialData(options) {
   options = options || {};
   const lineUserId = String(options.lineUserId || '').trim();
   const isAdmin = options.admin === true;
+  if (isAdmin) requireAdmin_(options.adminToken);
   const registrations = isAdmin
     ? listRegistrations()
     : listRegistrations().filter((record) => lineUserId && record.lineUserId === lineUserId);
 
   return {
     cases: listCases(),
+    reportCases: listAllCases_(),
     registrations
   };
 }
 
 function listCases() {
+  return listAllCases_()
+    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row));
+}
+
+function listAllCases_() {
   const sheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
   const rows = readRowsFromSheet_(sheet);
   return rows
-    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row))
-    .map((row) => ({
-      caseId: row.caseId,
-      title: row.title,
-      targetAmount: Number(row.targetAmount || 0),
-      currentAmount: Number(row.currentAmount || 0),
-      remainingAmount: Math.max(Number(row.targetAmount || 0) - Number(row.currentAmount || 0), 0),
+    .map((row) => {
+      const targetAmount = Number(row.targetAmount || 0);
+      const liveCurrentAmount = calculateCaseCurrentAmount_(row.caseId);
+      return {
+        caseId: row.caseId,
+        title: row.title,
+        targetAmount,
+        currentAmount: liveCurrentAmount,
+        remainingAmount: Math.max(targetAmount - liveCurrentAmount, 0),
+      opened: row.opened,
+      archived: isYes_(row.archived),
       status: row.status || '開放中',
       note: row.note || ''
-    }));
+      };
+    });
+}
+
+function setCaseArchived(caseId, archived) {
+  requireAdmin_(arguments[2]);
+  const sheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
+  applyHeaders_(sheet, HEADERS.cases);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const caseIdIndex = findHeaderIndex_(headers, FIELD_ALIASES.caseId);
+  const archivedIndex = findHeaderIndex_(headers, FIELD_ALIASES.archived);
+  const updatedAtIndex = findHeaderIndex_(headers, FIELD_ALIASES.updatedAt);
+  const openedIndex = findHeaderIndex_(headers, FIELD_ALIASES.opened);
+  const targetIndex = data.findIndex((row, index) => index > 0 && row[caseIdIndex] === caseId);
+  if (targetIndex === -1) throw new Error(`找不到個案：${caseId}`);
+
+  sheet.getRange(targetIndex + 1, archivedIndex + 1).setValue(archived ? '是' : '否');
+  if (updatedAtIndex !== -1) {
+    sheet.getRange(targetIndex + 1, updatedAtIndex + 1).setValue(new Date());
+  }
+  if (archived && openedIndex !== -1) {
+    sheet.getRange(targetIndex + 1, openedIndex + 1).setValue('否');
+  }
+  return { ok: true, caseId, archived: Boolean(archived) };
 }
 
 function listRegistrations() {
   return readAllCaseRegistrationRows_()
     .filter((row) => row.recordId)
     .map(normalizeRegistration_);
+}
+
+function searchRegistrationsForReport(caseId, keyword) {
+  const targetCaseId = String(caseId || '').trim();
+  const searchText = String(keyword || '').trim().toLowerCase();
+  if (!targetCaseId) throw new Error('請先選擇專案');
+  if (!searchText) throw new Error('請輸入芳名搜尋');
+
+  return listRegistrations()
+    .filter((record) => record.caseId === targetCaseId)
+    .filter((record) => !record.lineUserId || record.sourceType === 'helper_created' || record.sourceType === '小幫手代填')
+    .filter((record) => isPaymentPending_(record.paymentStatus))
+    .filter((record) => {
+      const donorText = record.donors.map((donor) => donor.name).join(' ');
+      return [record.representativeName, donorText]
+        .some((value) => String(value || '').toLowerCase().indexOf(searchText) !== -1);
+    })
+    .slice(0, 20);
 }
 
 function createRegistration(payload) {
@@ -177,8 +319,8 @@ function createRegistration(payload) {
       Number(payload.totalAmount || 0),
       normalizePaymentMethod_(payload.paymentMethod || 'bankTransfer'),
       formatDonorsForSheet_(donors),
-      payload.receiptRequired ? '是' : '否',
-      payload.receiptRequired ? '待處理' : '不需收據',
+      '否',
+      '待回報',
       '待付款',
       '',
       '',
@@ -187,11 +329,20 @@ function createRegistration(payload) {
       now,
       payload.lineUserId || '',
       payload.liffProfileName || '',
-      payload.memo || ''
+      payload.memo || '',
+      payload.sourceType || 'self_created',
+      '',
+      '',
+      '',
+      '',
+      '',
+      payload.lineUserId || '',
+      payload.liffProfileName || ''
     ];
 
     const caseSheet = ensureCaseRegistrationSheet_(payload.caseId);
     const summarySheet = getSheet_(SHEETS.registrationSummary);
+    applyHeaders_(summarySheet, HEADERS.registrations);
     caseSheet.appendRow(row);
     summarySheet.appendRow(row);
     updateCaseCurrentAmount_(payload.caseId);
@@ -207,7 +358,87 @@ function createRegistration(payload) {
   }
 }
 
+function createHelperRegistrations(payload) {
+  payload = payload || {};
+  requireAdmin_(payload.adminToken);
+  if (!payload.caseId) throw new Error('請選擇專案');
+  if (!payload.lineUserId) throw new Error('尚未取得小幫手 LINE 身分');
+  const donors = (payload.donors || []).map((donor) => ({
+    name: String(donor.name || '').trim(),
+    amount: Number(donor.amount || 0)
+  })).filter((donor) => donor.name && donor.amount > 0);
+  if (!donors.length) throw new Error('請輸入至少一位芳名與金額');
+
+  const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
+  const lock = LockService.getScriptLock();
+  let locked = false;
+
+  try {
+    lock.waitLock(REGISTRATION_QUEUE_WAIT_MS);
+    locked = true;
+    validateCaseStillOpenForRegistration_(payload.caseId, totalAmount);
+
+    const now = new Date();
+    const caseSheet = ensureCaseRegistrationSheet_(payload.caseId);
+    const summarySheet = getSheet_(SHEETS.registrationSummary);
+    applyHeaders_(summarySheet, HEADERS.registrations);
+    const records = [];
+
+    donors.forEach((donor) => {
+      const recordId = nextRecordId_(payload.caseId);
+      const row = [
+        recordId,
+        payload.caseId,
+        donor.name,
+        '',
+        donor.amount,
+        normalizePaymentMethod_(payload.paymentMethod || 'bankTransfer'),
+        formatDonorsForSheet_([donor]),
+        '否',
+        '待回報',
+        '待付款',
+        '',
+        '',
+        '',
+        now,
+        now,
+        '',
+        '',
+        payload.memo || '',
+        'helper_created',
+        '',
+        '',
+        '',
+        '',
+        '',
+        payload.lineUserId || '',
+        payload.liffProfileName || ''
+      ];
+      caseSheet.appendRow(row);
+      summarySheet.appendRow(row);
+      records.push(normalizeRegistration_(rowToCanonicalObject_(HEADERS.registrations, row)));
+    });
+
+    updateCaseCurrentAmount_(payload.caseId);
+    const caseInfo = listAllCases_().find((item) => item.caseId === payload.caseId) || {};
+    return {
+      ok: true,
+      records,
+      totalAmount,
+      remainingAmount: Number(caseInfo.remainingAmount || 0)
+    };
+  } catch (error) {
+    if (String(error && error.message || error).indexOf('Lock') !== -1) {
+      throw new Error('目前登記人數較多，系統正在排隊處理。請稍後再送出一次。');
+    }
+    throw error;
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
 function updatePayment(recordId, paymentStatus, paymentDate) {
+  requireAdmin_(arguments[3]);
   return updateRegistration_(recordId, {
     paymentStatus: paymentStatus === 'paid' ? '已確認入帳' : paymentStatus,
     paymentDate: paymentDate || '',
@@ -222,12 +453,51 @@ function reportPayment(recordId, reportMemo) {
   }
   return updateRegistration_(recordId, {
     paymentStatus: '已回報',
+    paymentLast5: memo,
     memo: `付款回報：帳號末五碼 ${memo}`,
     updatedAt: new Date()
   });
 }
 
+function reportRegistrationDetails(recordId, payload) {
+  payload = payload || {};
+  const paymentLast5 = String(payload.paymentLast5 || '').trim();
+  if (!/^\d{5}$/.test(paymentLast5)) {
+    throw new Error('付款回報請只輸入帳號末 5 碼，必須剛好是 5 個數字。現金請輸入 00000。');
+  }
+
+  const receiptRequired = payload.receiptRequired === true || String(payload.receiptRequired) === 'true';
+  const receiptMode = receiptRequired ? String(payload.receiptMode || 'representativeTotal') : '';
+  const receiptEmail = receiptRequired ? String(payload.receiptEmail || '').trim() : '';
+  if (receiptRequired && !receiptEmail) {
+    throw new Error('需要收據時請填寫 Email 地址。');
+  }
+
+  const memoParts = [
+    `付款回報：帳號末五碼 ${paymentLast5}`,
+    receiptRequired ? `收據開立方式：${receiptModeLabel_(receiptMode)}` : '收據：不需要收據',
+    receiptEmail ? `Email：${receiptEmail}` : '',
+    payload.memo ? `備註：${String(payload.memo).trim()}` : ''
+  ].filter(Boolean);
+
+  return updateRegistration_(recordId, {
+    paymentStatus: '已回報',
+    paymentLast5,
+    receiptRequired: receiptRequired ? '是' : '否',
+    receiptStatus: receiptRequired ? '待處理' : '不需收據',
+    receiptMode: receiptRequired ? receiptModeLabel_(receiptMode) : '',
+    receiptEmail,
+    reportedLineUserId: payload.lineUserId || '',
+    reportedProfileName: payload.liffProfileName || '',
+    lineUserId: payload.lineUserId || '',
+    liffProfileName: payload.liffProfileName || '',
+    memo: memoParts.join('\n'),
+    updatedAt: new Date()
+  });
+}
+
 function cancelRegistration(recordId, cancelMemo) {
+  requireAdmin_(arguments[2]);
   const result = updateRegistration_(recordId, {
     paymentStatus: '已取消',
     receiptStatus: '不處理',
@@ -239,6 +509,7 @@ function cancelRegistration(recordId, cancelMemo) {
 }
 
 function updateReceipt(recordId, receiptStatus, receiptNo, receiptDate) {
+  requireAdmin_(arguments[4]);
   return updateRegistration_(recordId, {
     receiptStatus: receiptStatus === 'done' ? '收據已處理' : receiptStatus,
     receiptNo: receiptNo || '',
@@ -248,9 +519,11 @@ function updateReceipt(recordId, receiptStatus, receiptNo, receiptDate) {
 }
 
 function resetPaymentStatus(recordId, paymentStatus, memo) {
+  requireAdmin_(arguments[3]);
   const statusMap = {
     pending: '待付款',
     reported: '已回報',
+    needInfo: '待補件',
     paid: '已確認入帳',
     cancelled: '已取消'
   };
@@ -276,6 +549,7 @@ function resetPaymentStatus(recordId, paymentStatus, memo) {
 }
 
 function resetReceiptStatus(recordId, receiptStatus, memo) {
+  requireAdmin_(arguments[3]);
   const statusMap = {
     pending: '待處理',
     notRequired: '不需收據',
@@ -403,7 +677,15 @@ function canonicalRegistrationToRow_(canonical) {
     canonical.updatedAt,
     canonical.lineUserId,
     canonical.liffProfileName,
-    canonical.memo
+    canonical.memo,
+    canonical.sourceType || 'self_created',
+    canonical.reportedLineUserId,
+    canonical.reportedProfileName,
+    canonical.paymentLast5,
+    canonical.receiptMode,
+    canonical.receiptEmail,
+    canonical.createdByLineUserId,
+    canonical.createdByProfileName
   ];
 }
 
@@ -478,6 +760,14 @@ function normalizeRegistration_(row) {
     updatedAt: formatDateTime_(row.updatedAt),
     lineUserId: row.lineUserId || '',
     liffProfileName: row.liffProfileName || '',
+    sourceType: row.sourceType || 'self_created',
+    reportedLineUserId: row.reportedLineUserId || '',
+    reportedProfileName: row.reportedProfileName || '',
+    paymentLast5: row.paymentLast5 || '',
+    receiptMode: row.receiptMode || '',
+    receiptEmail: row.receiptEmail || '',
+    createdByLineUserId: row.createdByLineUserId || row.lineUserId || '',
+    createdByProfileName: row.createdByProfileName || row.liffProfileName || '',
     memo: row.memo || ''
   };
 }
@@ -550,6 +840,7 @@ function getRegistrationUpdateSheets_(recordId) {
 }
 
 function updateRegistrationInSheet_(sheet, recordId, patch) {
+  applyHeaders_(sheet, HEADERS.registrations);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const idIndex = findHeaderIndex_(headers, FIELD_ALIASES.recordId);
@@ -570,11 +861,7 @@ function updateRegistrationInSheet_(sheet, recordId, patch) {
 
 function updateCaseCurrentAmount_(caseId) {
   const casesSheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
-  const registrations = readRowsFromSheet_(ensureCaseRegistrationSheet_(caseId));
-  const total = registrations
-    .filter((row) => row.caseId === caseId)
-    .filter((row) => normalizePaymentStatus_(row.paymentStatus) !== '已取消')
-    .reduce((sum, row) => sum + Number(row.totalAmount || 0), 0);
+  const total = calculateCaseCurrentAmount_(caseId);
 
   const data = casesSheet.getDataRange().getValues();
   const headers = data[0];
@@ -597,6 +884,13 @@ function updateCaseCurrentAmount_(caseId) {
   }
 }
 
+function calculateCaseCurrentAmount_(caseId) {
+  return readRowsFromSheet_(ensureCaseRegistrationSheet_(caseId))
+    .filter((row) => row.caseId === caseId)
+    .filter((row) => normalizePaymentStatus_(row.paymentStatus) !== '已取消')
+    .reduce((sum, row) => sum + Number(row.totalAmount || 0), 0);
+}
+
 function findHeaderIndex_(headers, aliases) {
   return headers.findIndex((header) => aliases.indexOf(header) !== -1);
 }
@@ -614,12 +908,12 @@ function validateCaseStillOpenForRegistration_(caseId, totalAmount) {
   const rows = readRowsFromSheet_(sheet);
   const target = rows.find((row) => row.caseId === caseId);
   if (!target) throw new Error(`找不到個案：${caseId}`);
-  if (!isOpen_(target.opened) || isCaseFull_(target)) {
+  const currentAmount = calculateCaseCurrentAmount_(caseId);
+  if (!isOpen_(target.opened) || isCaseFull_({ targetAmount: target.targetAmount, currentAmount })) {
     throw new Error('此個案目前已額滿或未開放，請重新選擇個案。');
   }
 
   const targetAmount = Number(target.targetAmount || 0);
-  const currentAmount = Number(target.currentAmount || 0);
   const remainingAmount = targetAmount > 0 ? targetAmount - currentAmount : 0;
   if (targetAmount > 0 && Number(totalAmount || 0) > remainingAmount) {
     throw new Error(`此個案目前餘額只剩 ${remainingAmount} 元，請調整金額或選擇其他個案。`);
@@ -647,6 +941,7 @@ function normalizePaymentStatus_(value) {
   if (text === 'paid' || text === '已入帳') return '已確認入帳';
   if (text === 'pending' || text === '') return '待付款';
   if (text === 'reported') return '已回報';
+  if (text === 'needInfo' || text === '資料待補') return '待補件';
   if (text === 'cancelled' || text === 'canceled') return '已取消';
   return text;
 }
@@ -657,6 +952,19 @@ function normalizeReceiptStatus_(value) {
   if (text === 'notRequired') return '不需收據';
   if (text === 'pending' || text === '') return '待處理';
   return text;
+}
+
+function isPaymentPending_(value) {
+  const status = normalizePaymentStatus_(value);
+  return status === '待付款';
+}
+
+function receiptModeLabel_(value) {
+  return {
+    representativeTotal: '代表人+總金額',
+    eachDonor: '每位捐款人單獨開立',
+    other: '其他開立方式'
+  }[String(value || '')] || String(value || '代表人+總金額');
 }
 
 function normalizePaymentMethod_(value) {
