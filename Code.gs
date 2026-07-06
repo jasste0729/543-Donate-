@@ -222,9 +222,35 @@ function getInitialData(options) {
   };
 }
 
+function getFrontInitialData(options) {
+  options = options || {};
+  const lineUserId = String(options.lineUserId || '').trim();
+  const allCases = listAllCases_();
+  const cases = allCases
+    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row));
+  const registrations = lineUserId ? listRegistrationsForLineUser_(lineUserId) : [];
+
+  return {
+    cases,
+    reportCases: allCases,
+    registrations
+  };
+}
+
 function listCases() {
   return listAllCases_()
     .filter((row) => isOpen_(row.opened) && !isCaseFull_(row));
+}
+
+function listRegistrationsForLineUser_(lineUserId) {
+  const targetLineUserId = String(lineUserId || '').trim();
+  if (!targetLineUserId) return [];
+
+  const summarySheet = getSheet_(SHEETS.registrationSummary, LEGACY_SHEETS.registrations);
+  return readRowsFromSheet_(summarySheet)
+    .filter((row) => row.recordId)
+    .map(normalizeRegistration_)
+    .filter((record) => record.lineUserId === targetLineUserId);
 }
 
 function listAllCases_() {
@@ -283,8 +309,7 @@ function searchRegistrationsForReport(caseId, keyword) {
   if (!targetCaseId) throw new Error('請先選擇專案');
   if (!searchText) throw new Error('請輸入芳名搜尋');
 
-  return listRegistrations()
-    .filter((record) => record.caseId === targetCaseId)
+  return listRegistrationsForCase_(targetCaseId)
     .filter((record) => !record.lineUserId || record.sourceType === 'helper_created' || record.sourceType === '小幫手代填')
     .filter((record) => isPaymentPending_(record.paymentStatus))
     .filter((record) => {
@@ -293,6 +318,22 @@ function searchRegistrationsForReport(caseId, keyword) {
         .some((value) => String(value || '').toLowerCase().indexOf(searchText) !== -1);
     })
     .slice(0, 20);
+}
+
+function listRegistrationsForCase_(caseId) {
+  const targetCaseId = String(caseId || '').trim();
+  if (!targetCaseId) return [];
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const caseSheet = ss.getSheetByName(getCaseRegistrationSheetName_(targetCaseId));
+  const rows = caseSheet
+    ? readRowsFromSheet_(caseSheet)
+    : readRowsFromSheet_(getSheet_(SHEETS.registrationSummary, LEGACY_SHEETS.registrations))
+        .filter((row) => row.caseId === targetCaseId);
+
+  return rows
+    .filter((row) => row.recordId)
+    .map(normalizeRegistration_);
 }
 
 function createRegistration(payload) {

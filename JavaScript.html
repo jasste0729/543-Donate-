@@ -393,6 +393,8 @@
   function loadData() {
     if (state.suppressLiffLoadData) return;
     state.dataLoadStarted = true;
+    const shouldLoadAdminData = state.currentView === 'admin' && Boolean(getAdminToken());
+    const dataRequest = shouldLoadAdminData ? 'getInitialData' : 'getFrontInitialData';
     setBusy(true);
     renderLoadingCases();
     google.script.run
@@ -406,9 +408,9 @@
         setBusy(false);
       })
       .withFailureHandler(showError)
-      .getInitialData({
+      [dataRequest]({
         lineUserId: state.lineUserId,
-        admin: state.currentView === 'admin' && Boolean(getAdminToken()),
+        admin: shouldLoadAdminData,
         adminToken: getAdminToken()
       });
   }
