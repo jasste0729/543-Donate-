@@ -427,6 +427,7 @@ function createHelperRegistrations(payload) {
   })).filter((donor) => donor.name && donor.amount > 0);
   if (!donors.length) throw new Error('請輸入至少一位芳名與金額');
   const representativeName = String(payload.representativeName || '').trim();
+  if (!representativeName) throw new Error('請輸入代表人姓名');
 
   const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
   const lock = LockService.getScriptLock();
@@ -441,42 +442,38 @@ function createHelperRegistrations(payload) {
     const caseSheet = ensureCaseRegistrationSheet_(payload.caseId);
     const summarySheet = getSheet_(SHEETS.registrationSummary);
     applyHeaders_(summarySheet, HEADERS.registrations);
-    const records = [];
-
-    donors.forEach((donor) => {
-      const recordId = nextRecordId_(payload.caseId);
-      const row = [
-        recordId,
-        payload.caseId,
-        representativeName || donor.name,
-        '',
-        donor.amount,
-        normalizePaymentMethod_(payload.paymentMethod || 'bankTransfer'),
-        formatDonorsForSheet_([donor]),
-        '否',
-        '待回報',
-        '待付款',
-        '',
-        '',
-        '',
-        now,
-        now,
-        '',
-        '',
-        payload.memo || '',
-        'helper_created',
-        '',
-        '',
-        '',
-        '',
-        '',
-        payload.lineUserId || '',
-        payload.liffProfileName || ''
-      ];
-      caseSheet.appendRow(row);
-      summarySheet.appendRow(row);
-      records.push(normalizeRegistration_(rowToCanonicalObject_(HEADERS.registrations, row)));
-    });
+    const recordId = nextRecordId_(payload.caseId);
+    const row = [
+      recordId,
+      payload.caseId,
+      representativeName,
+      '',
+      totalAmount,
+      normalizePaymentMethod_(payload.paymentMethod || 'bankTransfer'),
+      formatDonorsForSheet_(donors),
+      '否',
+      '待回報',
+      '待付款',
+      '',
+      '',
+      '',
+      now,
+      now,
+      '',
+      '',
+      payload.memo || '',
+      'helper_created',
+      '',
+      '',
+      '',
+      '',
+      '',
+      payload.lineUserId || '',
+      payload.liffProfileName || ''
+    ];
+    caseSheet.appendRow(row);
+    summarySheet.appendRow(row);
+    const records = [normalizeRegistration_(rowToCanonicalObject_(HEADERS.registrations, row))];
 
     updateCaseCurrentAmount_(payload.caseId);
     const caseInfo = listAllCases_().find((item) => item.caseId === payload.caseId) || {};

@@ -690,8 +690,8 @@ Christian GRADERT100"></textarea>
             <select id="quickReportCase">${caseOptions}</select>
           </label>
           <label class="quickReportField">
-            <span>搜尋芳名</span>
-            <input id="quickReportKeyword" autocomplete="name" placeholder="輸入自己的芳名">
+            <span>搜尋代表人或芳名</span>
+            <input id="quickReportKeyword" autocomplete="name" placeholder="輸入代表人姓名或芳名">
           </label>
           <button id="quickReportSearchButton" class="quickReportSearchButton" type="button">搜尋</button>
           <div id="quickReportResult" class="quickReportResult"></div>
@@ -710,7 +710,7 @@ Christian GRADERT100"></textarea>
     const resultBox = document.getElementById('quickReportResult');
     if (!resultBox) return;
     if (!caseId || !keyword) {
-      resultBox.innerHTML = '<div class="notice">請選擇專案並輸入芳名。</div>';
+      resultBox.innerHTML = '<div class="notice">請選擇專案，並輸入代表人姓名或芳名。</div>';
       return;
     }
     resultBox.innerHTML = '<div class="notice">正在搜尋名單...</div>';
@@ -726,14 +726,14 @@ Christian GRADERT100"></textarea>
     const resultBox = document.getElementById('quickReportResult');
     if (!resultBox) return;
     if (!records.length) {
-      resultBox.innerHTML = '<div class="notice">查無資料，請確認專案或芳名。</div>';
+      resultBox.innerHTML = '<div class="notice">查無資料，請確認專案、代表人或芳名。</div>';
       return;
     }
     resultBox.innerHTML = records.map((record) => `
       <article class="quickResultCard" data-report-host="${escapeAttr(record.recordId)}">
         <div>
           <strong>${escapeHtml(record.representativeName || record.recordId)}</strong>
-          <span>${escapeHtml(record.recordId)}｜${money(record.totalAmount)} 元</span>
+          <span>${escapeHtml(record.recordId)}｜代表人總額 ${money(record.totalAmount)} 元</span>
           <small>${record.donors.map((donor) => `${escapeHtml(donor.name)} ${money(donor.amount)} 元`).join('、')}</small>
         </div>
         <button class="reportButton" type="button" onclick="reportPayment('${escapeAttr(record.recordId)}')">我要回報</button>
@@ -1120,7 +1120,7 @@ Christian GRADERT100"></textarea>
       <section class="adminHelperPanel ${canCreate ? '' : 'locked'}">
         <div>
           <strong>小幫手批次代填</strong>
-          <span>目前專案：${escapeHtml(state.adminCaseId)}。每位芳名會建立成一筆待回報資料。</span>
+          <span>目前專案：${escapeHtml(state.adminCaseId)}。系統會建立一筆代表人總額回報，芳名保留為明細。</span>
           <span class="helperBalance">目標金額：${money(caseInfo.targetAmount)} 元</span>
           <span class="helperBalance">目前可登記餘額：${money(remaining)} 元</span>
         </div>
@@ -1146,6 +1146,10 @@ Christian GRADERT100"></textarea>
     const result = document.getElementById('adminHelperBatchResult');
     const representativeName = representativeInput?.value.trim() || '';
     const text = input?.value.trim() || '';
+    if (!representativeName) {
+      result.textContent = '請先輸入代表人姓名，捐款者會用代表人找到這筆總額回報。';
+      return;
+    }
     const donors = text
       .split(/[、，,；;\n\r]+/)
       .map((item) => item.trim())
@@ -1159,7 +1163,7 @@ Christian GRADERT100"></textarea>
     result.textContent = '正在建立代填資料...';
     const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
     result.innerHTML = `
-      <div class="notice">目前查詢餘額中，準備建立 ${donors.length} 筆，合計 ${money(totalAmount)} 元。請不要重複點擊。</div>
+      <div class="notice">目前查詢餘額中，準備建立 1 筆代表人總額回報，含 ${donors.length} 位芳名，合計 ${money(totalAmount)} 元。請不要重複點擊。</div>
     `;
     const button = document.getElementById('adminHelperCreateButton');
     const panel = button?.closest('.adminHelperPanel');
@@ -1176,7 +1180,7 @@ Christian GRADERT100"></textarea>
         const remaining = Number(response.remainingAmount || 0);
         result.innerHTML = `
           <div class="success">
-            建立成功：${response.records.length} 筆，合計 ${money(response.totalAmount)} 元。<br>
+            建立成功：代表人 ${escapeHtml(representativeName)}，共 ${donors.length} 位芳名，總額 ${money(response.totalAmount)} 元。<br>
             最新可登記餘額：${money(remaining)} 元。
           </div>
         `;
