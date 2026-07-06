@@ -1568,19 +1568,31 @@ Christian GRADERT100"></textarea>
     document.body.appendChild(overlay);
     const confirmButton = overlay.querySelector('.reportSuccessConfirm');
     confirmButton.focus();
-    confirmButton.addEventListener('click', closeCurrentWindow);
+    confirmButton.addEventListener('click', () => closeCurrentWindow(overlay));
   }
 
-  function closeCurrentWindow() {
+  function closeCurrentWindow(overlay) {
+    overlay?.remove();
     try {
       if (window.liff && liff.closeWindow) {
         liff.closeWindow();
-        return;
+        setTimeout(() => {
+          try {
+            window.close();
+          } catch (error) {
+            // Some in-app browsers block scripted window closing.
+          }
+        }, 250);
+      } else {
+        window.close();
       }
     } catch (error) {
-      // Fall back to the browser close path below.
+      try {
+        window.close();
+      } catch (closeError) {
+        // If the browser blocks closing, the success dialog is already dismissed.
+      }
     }
-    window.close();
   }
 
   function money(value) {
