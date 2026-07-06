@@ -426,6 +426,7 @@ function createHelperRegistrations(payload) {
     amount: Number(donor.amount || 0)
   })).filter((donor) => donor.name && donor.amount > 0);
   if (!donors.length) throw new Error('請輸入至少一位芳名與金額');
+  const representativeName = String(payload.representativeName || '').trim();
 
   const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
   const lock = LockService.getScriptLock();
@@ -447,7 +448,7 @@ function createHelperRegistrations(payload) {
       const row = [
         recordId,
         payload.caseId,
-        donor.name,
+        representativeName || donor.name,
         '',
         donor.amount,
         normalizePaymentMethod_(payload.paymentMethod || 'bankTransfer'),

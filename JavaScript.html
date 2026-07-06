@@ -80,10 +80,10 @@
       const labels = {
         bankTransfer: '轉帳',
         atm: '轉帳',
-        cash: '現金',
-        other: '其他'
+        cash: '現金'
       };
       paymentPanel.querySelector('[data-value="atm"]')?.remove();
+      paymentPanel.querySelector('[data-value="other"]')?.remove();
       paymentPanel.querySelectorAll('.optionButton').forEach((button) => {
         button.textContent = labels[button.dataset.value] || button.textContent.trim();
       });
@@ -96,26 +96,15 @@
         <div class="donorHeader">
           <div class="sectionTitle">捐款芳名清單</div>
         </div>
-        <div class="donorModeButtons">
-          <button id="donorModeBulk" class="donorModeButton" type="button">多位加入芳名</button>
-          <button id="donorModeSingle" class="donorModeButton selected" type="button">新增一位</button>
-        </div>
-        <div id="bulkDonorPanel" class="donorModePanel hidden">
-          <textarea id="bulkDonors" rows="5" placeholder="可貼上：王小明100、李小華200、Christian GRADERT100"></textarea>
+        <div id="bulkDonorPanel" class="donorModePanel">
+          <textarea id="bulkDonors" rows="6" placeholder="可填方式：
+王小明100
+王小明 100
+王小明：100
+王小明100、李小華200
+Christian GRADERT100"></textarea>
           <button id="parseDonorsButton" class="secondaryAction" type="button">名單確認</button>
           <div id="bulkDonorResult" class="bulkDonorResult"></div>
-        </div>
-        <div id="singleDonorPanel" class="donorModePanel">
-          <label class="sameAsRepresentativeRow">
-            <input id="sameAsRepresentative" type="checkbox">
-            <span>芳名同代表人</span>
-          </label>
-          <div class="singleDonorGrid">
-            <input id="singleDonorName" placeholder="填寫芳名">
-            <input id="singleDonorAmount" inputmode="numeric" placeholder="金額">
-          </div>
-          <button id="addSingleDonorButton" class="secondaryAction" type="button">名單確認</button>
-          <div id="singleDonorResult" class="bulkDonorResult"></div>
         </div>
         <div id="donorList" class="donorList"></div>
         <div class="summary">
@@ -150,15 +139,7 @@
       'receiptRequired',
       'receiptMode',
       'receiptModePanel',
-      'donorModeBulk',
-      'donorModeSingle',
       'bulkDonorPanel',
-      'singleDonorPanel',
-      'singleDonorName',
-      'singleDonorAmount',
-      'sameAsRepresentative',
-      'addSingleDonorButton',
-      'singleDonorResult',
       'memo',
       'submitButton',
       'frontResult',
@@ -206,14 +187,7 @@
       });
     });
 
-    els.donorModeBulk?.addEventListener('click', () => setDonorMode('bulk'));
-    els.donorModeSingle?.addEventListener('click', () => setDonorMode('single'));
     document.getElementById('parseDonorsButton')?.addEventListener('click', parseBulkDonors);
-    els.addSingleDonorButton?.addEventListener('click', addSingleDonor);
-    els.sameAsRepresentative?.addEventListener('change', syncSameAsRepresentative);
-    els.representativeName?.addEventListener('input', () => {
-      if (els.sameAsRepresentative?.checked) syncSameAsRepresentative();
-    });
     els.submitButton.addEventListener('click', submitRegistration);
     els.refreshButton.addEventListener('click', loadData);
     document.querySelectorAll('[data-case-scope]').forEach((button) => {
@@ -511,41 +485,6 @@
     return Math.min(Math.round((Number(item.currentAmount || 0) / target) * 100), 100);
   }
 
-  function setDonorMode(mode) {
-    const isBulk = mode === 'bulk';
-    els.bulkDonorPanel?.classList.toggle('hidden', !isBulk);
-    els.singleDonorPanel?.classList.toggle('hidden', isBulk);
-    els.donorModeBulk?.classList.toggle('selected', isBulk);
-    els.donorModeSingle?.classList.toggle('selected', !isBulk);
-  }
-
-  function addSingleDonor() {
-    const name = els.singleDonorName.value.trim();
-    const amount = Number(String(els.singleDonorAmount.value || '').replace(/,/g, ''));
-    if (!name || !amount || amount <= 0) {
-      els.singleDonorResult.textContent = '請填寫芳名與正確金額。';
-      return;
-    }
-    addDonorRow(name, amount);
-    els.singleDonorName.value = els.sameAsRepresentative?.checked ? els.representativeName.value.trim() : '';
-    els.singleDonorAmount.value = '';
-    els.singleDonorResult.textContent = `已加入：${name} ${money(amount)} 元`;
-    updateTotal();
-  }
-
-  function syncSameAsRepresentative() {
-    if (!els.sameAsRepresentative?.checked) return;
-    const name = els.representativeName.value.trim();
-    if (!name) {
-      els.sameAsRepresentative.checked = false;
-      els.singleDonorResult.textContent = '請先填寫代表人姓名。';
-      els.representativeName.focus();
-      return;
-    }
-    els.singleDonorName.value = name;
-    els.singleDonorResult.textContent = '';
-  }
-
   function updateReceiptModeVisibility() {
     const needsReceipt = els.receiptRequired?.value === 'true';
     els.receiptModePanel?.classList.toggle('hidden', !needsReceipt);
@@ -683,12 +622,7 @@
     if (els.memo) els.memo.value = '';
     if (els.bulkDonors) els.bulkDonors.value = '';
     if (els.bulkDonorResult) els.bulkDonorResult.textContent = '';
-    if (els.singleDonorName) els.singleDonorName.value = '';
-    if (els.singleDonorAmount) els.singleDonorAmount.value = '';
-    if (els.singleDonorResult) els.singleDonorResult.textContent = '';
-    if (els.sameAsRepresentative) els.sameAsRepresentative.checked = false;
     els.donorList.innerHTML = '';
-    setDonorMode('single');
     updateTotal();
   }
 
@@ -942,7 +876,11 @@
       });
       setBusy(true);
       google.script.run
-        .withSuccessHandler(loadData)
+        .withSuccessHandler(() => {
+          setBusy(false);
+          showReportSuccessDialog();
+          loadData();
+        })
         .withFailureHandler((error) => {
           submitting = false;
           form.classList.remove('submitting');
@@ -1186,6 +1124,10 @@
           <span class="helperBalance">目標金額：${money(caseInfo.targetAmount)} 元</span>
           <span class="helperBalance">目前可登記餘額：${money(remaining)} 元</span>
         </div>
+        <label class="adminHelperField">
+          <span>代表人姓名</span>
+          <input id="adminHelperRepresentativeName" placeholder="例如：張大同" ${canCreate ? '' : 'disabled'}>
+        </label>
         <textarea id="adminHelperBatchInput" rows="4" placeholder="王小明100、李小華200" ${canCreate ? '' : 'disabled'}></textarea>
         <button id="adminHelperCreateButton" class="secondaryAction" type="button" ${canCreate ? '' : 'disabled'}>${canCreate ? '建立代填資料' : '專案已額滿或未開放'}</button>
         <div id="adminHelperBatchResult" class="helperBatchResult">${canCreate ? '' : '<div class="notice">此專案目前不能新增代填資料，但仍可進行資料處理。</div>'}</div>
@@ -1200,7 +1142,9 @@
       return;
     }
     const input = document.getElementById('adminHelperBatchInput');
+    const representativeInput = document.getElementById('adminHelperRepresentativeName');
     const result = document.getElementById('adminHelperBatchResult');
+    const representativeName = representativeInput?.value.trim() || '';
     const text = input?.value.trim() || '';
     const donors = text
       .split(/[、，,；;\n\r]+/)
@@ -1225,6 +1169,7 @@
       button.textContent = '建立中';
     }
     if (input) input.disabled = true;
+    if (representativeInput) representativeInput.disabled = true;
     setBusy(true);
     google.script.run
       .withSuccessHandler((response) => {
@@ -1236,6 +1181,7 @@
           </div>
         `;
         input.value = '';
+        if (representativeInput) representativeInput.value = '';
         setTimeout(loadData, 1300);
       })
       .withFailureHandler((error) => {
@@ -1245,11 +1191,13 @@
           button.textContent = '建立代填資料';
         }
         if (input) input.disabled = false;
+        if (representativeInput) representativeInput.disabled = false;
         result.innerHTML = `<div class="notice">${escapeHtml(error.message || error)}</div>`;
         setBusy(false);
       })
       .createHelperRegistrations({
         caseId: state.adminCaseId,
+        representativeName,
         donors,
         paymentMethod: 'bankTransfer',
         lineUserId: state.lineUserId,
@@ -1604,6 +1552,35 @@
     } else {
       alert(message);
     }
+  }
+
+  function showReportSuccessDialog() {
+    document.querySelectorAll('.reportSuccessOverlay').forEach((item) => item.remove());
+    const overlay = document.createElement('div');
+    overlay.className = 'reportSuccessOverlay';
+    overlay.innerHTML = `
+      <div class="reportSuccessDialog" role="dialog" aria-modal="true" aria-labelledby="reportSuccessTitle">
+        <h2 id="reportSuccessTitle">成功回報</h2>
+        <p>如有問題可在此處更正回報</p>
+        <button class="reportSuccessConfirm" type="button">確認</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const confirmButton = overlay.querySelector('.reportSuccessConfirm');
+    confirmButton.focus();
+    confirmButton.addEventListener('click', closeCurrentWindow);
+  }
+
+  function closeCurrentWindow() {
+    try {
+      if (window.liff && liff.closeWindow) {
+        liff.closeWindow();
+        return;
+      }
+    } catch (error) {
+      // Fall back to the browser close path below.
+    }
+    window.close();
   }
 
   function money(value) {
