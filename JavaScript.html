@@ -394,7 +394,12 @@
     if (state.suppressLiffLoadData) return;
     state.dataLoadStarted = true;
     const shouldLoadAdminData = state.currentView === 'admin' && Boolean(getAdminToken());
-    const dataRequest = shouldLoadAdminData ? 'getInitialData' : 'getFrontInitialData';
+    if (!shouldLoadAdminData) {
+      loadFrontCases();
+      loadMyRecordsData();
+      return;
+    }
+
     setBusy(true);
     renderLoadingCases();
     google.script.run
@@ -408,10 +413,48 @@
         setBusy(false);
       })
       .withFailureHandler(showError)
-      [dataRequest]({
+      .getInitialData({
         lineUserId: state.lineUserId,
-        admin: shouldLoadAdminData,
+        admin: true,
         adminToken: getAdminToken()
+      });
+  }
+
+  function loadFrontCases() {
+    setBusy(true);
+    renderLoadingCases();
+    google.script.run
+      .withSuccessHandler((data) => {
+        state.cases = data.cases || [];
+        state.reportCases = data.reportCases || data.cases || [];
+        renderCases();
+        renderMyRecords();
+        setBusy(false);
+      })
+      .withFailureHandler(showError)
+      .getFrontCases();
+  }
+
+  function loadMyRecordsData() {
+    if (!state.lineUserId) {
+      renderMyRecords();
+      return;
+    }
+    state.myRecordsLoading = true;
+    renderMyRecords();
+    google.script.run
+      .withSuccessHandler((data) => {
+        state.registrations = data.registrations || [];
+        state.myRecordsLoading = false;
+        renderMyRecords();
+      })
+      .withFailureHandler((error) => {
+        state.myRecordsLoading = false;
+        renderMyRecords();
+        console.warn(error);
+      })
+      .getMyRegistrationData({
+        lineUserId: state.lineUserId
       });
   }
 
@@ -626,7 +669,8 @@
         `;
         resetForm();
         switchView('report');
-        loadData();
+        loadFrontCases();
+        loadMyRecordsData();
       })
       .withFailureHandler(showError)
       .createRegistration(payload);
@@ -650,6 +694,16 @@
   function renderMyRecords() {
     if (!state.lineUserId) {
       els.myRecords.innerHTML = '<div class="notice">正在取得 LINE 身分，完成後會顯示你的回報紀錄。</div>';
+      return;
+    }
+
+    if (state.myRecordsLoading) {
+      els.myRecords.innerHTML = `
+        <div class="myStatusSection">
+          <div class="notice">Loading report status...</div>
+        </div>
+        ${renderQuickReportPanel()}
+      `;
       return;
     }
 

@@ -225,15 +225,32 @@ function getInitialData(options) {
 function getFrontInitialData(options) {
   options = options || {};
   const lineUserId = String(options.lineUserId || '').trim();
-  const allCases = listAllCases_();
-  const cases = allCases
-    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row));
+  const casesData = getFrontCases();
   const registrations = lineUserId ? listRegistrationsForLineUser_(lineUserId) : [];
 
   return {
-    cases,
-    reportCases: allCases,
+    cases: casesData.cases,
+    reportCases: casesData.reportCases,
     registrations
+  };
+}
+
+function getFrontCases() {
+  const allCases = listAllCases_();
+  const cases = allCases
+    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row));
+
+  return {
+    cases,
+    reportCases: allCases
+  };
+}
+
+function getMyRegistrationData(options) {
+  options = options || {};
+  const lineUserId = String(options.lineUserId || '').trim();
+  return {
+    registrations: lineUserId ? listRegistrationsForLineUser_(lineUserId) : []
   };
 }
 
