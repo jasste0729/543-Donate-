@@ -233,13 +233,13 @@ function listAllCases_() {
   return rows
     .map((row) => {
       const targetAmount = Number(row.targetAmount || 0);
-      const liveCurrentAmount = calculateCaseCurrentAmount_(row.caseId);
+      const currentAmount = Number(row.currentAmount || 0);
       return {
         caseId: row.caseId,
         title: row.title,
         targetAmount,
-        currentAmount: liveCurrentAmount,
-        remainingAmount: Math.max(targetAmount - liveCurrentAmount, 0),
+        currentAmount,
+        remainingAmount: Math.max(targetAmount - currentAmount, 0),
       opened: row.opened,
       archived: isYes_(row.archived),
       status: row.status || '開放中',
@@ -884,8 +884,22 @@ function updateCaseCurrentAmount_(caseId) {
   }
 }
 
+function refreshAllCaseCurrentAmounts() {
+  const casesSheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
+  const rows = readRowsFromSheet_(casesSheet);
+  rows
+    .map((row) => row.caseId)
+    .filter(Boolean)
+    .forEach(updateCaseCurrentAmount_);
+  return { ok: true, updated: rows.length };
+}
+
 function calculateCaseCurrentAmount_(caseId) {
-  return readRowsFromSheet_(ensureCaseRegistrationSheet_(caseId))
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(getCaseRegistrationSheetName_(caseId));
+  if (!sheet) return 0;
+
+  return readRowsFromSheet_(sheet)
     .filter((row) => row.caseId === caseId)
     .filter((row) => normalizePaymentStatus_(row.paymentStatus) !== '已取消')
     .reduce((sum, row) => sum + Number(row.totalAmount || 0), 0);
