@@ -27,15 +27,22 @@
     updateReceiptModeVisibility();
     hydrateInitialLineProfile();
     renderLoadingCases();
-    loadData();
-    initLiff();
+    initializeApp();
+  });
+
+  async function initializeApp() {
+    state.suppressLiffLoadData = true;
+    const shouldContinue = await initLiff();
+    state.suppressLiffLoadData = false;
+    if (shouldContinue === false || state.liffRedirecting) return;
 
     if (document.body.dataset.mode === 'admin') {
       openAdminWithPassword();
     } else {
       switchView('registration');
+      if (!state.dataLoadStarted) loadData();
     }
-  });
+  }
 
   function setupRegistrationUiDraft() {
     const intro = document.querySelector('#registrationView .screenIntro');
@@ -338,6 +345,7 @@
       if (liff.isLoggedIn && !liff.isLoggedIn()) {
         if (liff.login && inClient === true) {
           showLineIdentityMessage('尚未取得 LINE 身分，正在嘗試 LINE 登入...');
+          state.liffRedirecting = true;
           liff.login({ redirectUri: window.location.href });
           return;
         }
@@ -383,6 +391,8 @@
   }
 
   function loadData() {
+    if (state.suppressLiffLoadData) return;
+    state.dataLoadStarted = true;
     setBusy(true);
     renderLoadingCases();
     google.script.run
