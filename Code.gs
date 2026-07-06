@@ -89,8 +89,8 @@ const FIELD_ALIASES = {
 };
 
 const PAYMENT_METHOD_LABELS = {
-  bankTransfer: '銀行轉帳',
-  atm: 'ATM',
+  bankTransfer: '轉帳',
+  atm: '轉帳',
   cash: '現金',
   other: '其他'
 };
@@ -1041,7 +1041,7 @@ function receiptModeLabel_(value) {
 
 function normalizePaymentMethod_(value) {
   const text = String(value || '').trim();
-  return PAYMENT_METHOD_LABELS[text] || text || '銀行轉帳';
+  return PAYMENT_METHOD_LABELS[text] || text || '轉帳';
 }
 
 function formatDate_(value) {

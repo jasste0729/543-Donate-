@@ -78,11 +78,12 @@
       const title = paymentPanel.querySelector('.sectionTitle');
       if (title) title.textContent = '付款方式';
       const labels = {
-        bankTransfer: '銀行轉帳',
-        atm: 'ATM',
+        bankTransfer: '轉帳',
+        atm: '轉帳',
         cash: '現金',
         other: '其他'
       };
+      paymentPanel.querySelector('[data-value="atm"]')?.remove();
       paymentPanel.querySelectorAll('.optionButton').forEach((button) => {
         button.textContent = labels[button.dataset.value] || button.textContent.trim();
       });
@@ -96,12 +97,12 @@
           <div class="sectionTitle">捐款芳名清單</div>
         </div>
         <div class="donorModeButtons">
-          <button id="donorModeBulk" class="donorModeButton" type="button">批次加入芳名</button>
+          <button id="donorModeBulk" class="donorModeButton" type="button">多位加入芳名</button>
           <button id="donorModeSingle" class="donorModeButton selected" type="button">新增一位</button>
         </div>
         <div id="bulkDonorPanel" class="donorModePanel hidden">
           <textarea id="bulkDonors" rows="5" placeholder="可貼上：王小明100、李小華200、Christian GRADERT100"></textarea>
-          <button id="parseDonorsButton" class="secondaryAction" type="button">批次加入芳名</button>
+          <button id="parseDonorsButton" class="secondaryAction" type="button">名單確認</button>
           <div id="bulkDonorResult" class="bulkDonorResult"></div>
         </div>
         <div id="singleDonorPanel" class="donorModePanel">
@@ -113,7 +114,7 @@
             <input id="singleDonorName" placeholder="填寫芳名">
             <input id="singleDonorAmount" inputmode="numeric" placeholder="金額">
           </div>
-          <button id="addSingleDonorButton" class="secondaryAction" type="button">加入這一位</button>
+          <button id="addSingleDonorButton" class="secondaryAction" type="button">名單確認</button>
           <div id="singleDonorResult" class="bulkDonorResult"></div>
         </div>
         <div id="donorList" class="donorList"></div>
