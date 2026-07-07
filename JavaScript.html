@@ -13,7 +13,8 @@
     adminCaseScope: 'current',
     adminCaseSearch: '',
     adminSelectedRecords: new Set(),
-    adminToken: ''
+    adminToken: '',
+    registrationNoticePending: false
   };
 
   const ADMIN_SESSION_KEY = 'donationAdminAuthed';
@@ -447,20 +448,25 @@ Christian GRADERT100"></textarea>
       return;
     }
 
-    if (!els.caseSelect.value || !state.cases.some((item) => item.caseId === els.caseSelect.value)) {
-      els.caseSelect.value = state.cases[0].caseId;
+    const selectableCases = state.cases.filter(isCaseSelectable);
+    if (!selectableCases.some((item) => item.caseId === els.caseSelect.value)) {
+      els.caseSelect.value = selectableCases[0]?.caseId || '';
     }
+    els.submitButton.disabled = !els.caseSelect.value;
 
     els.caseCards.innerHTML = state.cases.map((item, index) => {
       const remaining = Number(item.remainingAmount ?? Math.max(Number(item.targetAmount || 0) - Number(item.currentAmount || 0), 0));
+      const full = isCaseFullForUi(item);
+      const selectable = isCaseSelectable(item);
       const selected = item.caseId === els.caseSelect.value;
       return `
-        <button class="caseCard theme${index % 5} ${selected ? 'selected' : ''}" type="button" data-case-id="${escapeAttr(item.caseId)}">
+        <button class="caseCard theme${index % 5} ${selected ? 'selected' : ''} ${full ? 'full' : ''}" type="button" data-case-id="${escapeAttr(item.caseId)}" ${selectable ? '' : 'disabled aria-disabled="true"'}>
           <span class="caseMain">
             <span class="caseTitle">
               <span>${escapeHtml(item.caseId)}</span>
               <strong>${escapeHtml(item.title)}</strong>
             </span>
+            ${full ? `<span class="caseFullBanner">專案 ${escapeHtml(item.caseId)} 已額滿</span>` : ''}
           </span>
           <span class="caseAmount">
             <span>目標金額 ${money(item.targetAmount)}</span>
@@ -473,6 +479,8 @@ Christian GRADERT100"></textarea>
 
     els.caseCards.querySelectorAll('.caseCard').forEach((button) => {
       button.addEventListener('click', () => {
+        const caseInfo = state.cases.find((item) => item.caseId === button.dataset.caseId);
+        if (!isCaseSelectable(caseInfo)) return;
         els.caseSelect.value = button.dataset.caseId;
         renderCases();
       });
@@ -485,6 +493,19 @@ Christian GRADERT100"></textarea>
     return Math.min(Math.round((Number(item.currentAmount || 0) / target) * 100), 100);
   }
 
+  function isCaseFullForUi(item) {
+    if (!item) return false;
+    const status = String(item.status || '').trim();
+    const target = Number(item.targetAmount || 0);
+    const current = Number(item.currentAmount || 0);
+    const remaining = Number(item.remainingAmount ?? Math.max(target - current, 0));
+    return status === '已額滿' || (target > 0 && (current >= target || remaining <= 0));
+  }
+
+  function isCaseSelectable(item) {
+    return Boolean(item) && isCaseOpen(item) && !isCaseFullForUi(item);
+  }
+
   function updateReceiptModeVisibility() {
     const needsReceipt = els.receiptRequired?.value === 'true';
     els.receiptModePanel?.classList.toggle('hidden', !needsReceipt);
@@ -494,8 +515,21 @@ Christian GRADERT100"></textarea>
     return {
       representativeTotal: '代表人+總金額',
       eachDonor: '每位捐款人單獨開立',
+      annualRepresentativeTotal: '年度開立｜代表人總額',
+      perPaymentRepresentativeTotal: '每次開立｜代表人總額',
+      annualEachDonor: '年度開立｜每位捐款人單獨開立',
+      perPaymentEachDonor: '每次開立｜每位捐款人單獨開立',
       other: '其他開立方式'
     }[value] || '代表人+總金額';
+  }
+
+  function buildReceiptModeValue(frequency, target) {
+    if (frequency === 'other') return 'other';
+    if (frequency === 'annual' && target === 'representativeTotal') return 'annualRepresentativeTotal';
+    if (frequency === 'perPayment' && target === 'representativeTotal') return 'perPaymentRepresentativeTotal';
+    if (frequency === 'annual' && target === 'eachDonor') return 'annualEachDonor';
+    if (frequency === 'perPayment' && target === 'eachDonor') return 'perPaymentEachDonor';
+    return '';
   }
 
   function setOptionValue(targetId, value) {
@@ -582,6 +616,12 @@ Christian GRADERT100"></textarea>
     }
     const donors = readDonors();
     const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
+    const selectedCase = state.cases.find((item) => item.caseId === els.caseSelect.value);
+    if (!isCaseSelectable(selectedCase)) {
+      els.frontResult.innerHTML = `<div class="notice">專案 ${escapeHtml(els.caseSelect.value || '')} 已額滿或未開放，無法登記。</div>`;
+      renderCases();
+      return;
+    }
     const payload = {
       caseId: els.caseSelect.value,
       representativeName: els.representativeName.value.trim(),
@@ -596,24 +636,70 @@ Christian GRADERT100"></textarea>
       liffProfileName: state.liffProfileName
     };
 
+    const localDuplicates = findLocalDuplicateDonors(donors);
+    if (localDuplicates.length) {
+      const message = `這次填寫內已有重複芳名與金額：\n${formatDuplicateLines(localDuplicates)}\n\n仍要送出嗎？`;
+      if (!confirm(message)) return;
+    }
+
     setBusy(true);
+    els.frontResult.innerHTML = '<div class="notice">正在檢查是否重複登記，請稍候。</div>';
+    google.script.run
+      .withSuccessHandler((result) => {
+        const duplicates = result?.duplicates || [];
+        if (duplicates.length) {
+          setBusy(false);
+          const message = `已有相同芳名與金額的登記紀錄：\n${formatDuplicateLines(duplicates)}\n\n可能是重複填寫，仍要送出嗎？`;
+          if (!confirm(message)) {
+            els.frontResult.innerHTML = '<div class="notice">已取消送出，請確認名單與金額。</div>';
+            return;
+          }
+          setBusy(true);
+        }
+        createRegistrationAfterDuplicateCheck(payload);
+      })
+      .withFailureHandler(showError)
+      .checkDuplicateRegistration(payload);
+  }
+
+  function createRegistrationAfterDuplicateCheck(payload) {
     els.frontResult.innerHTML = '<div class="notice">正在排隊送出登記，請不要關閉或重複按送出。</div>';
     google.script.run
       .withSuccessHandler((result) => {
-        els.frontResult.innerHTML = `
-          <div class="success">
-            登記完成<br>
-            登記編號：<strong>${escapeHtml(result.record.recordId)}</strong><br>
-            金額：${money(result.record.totalAmount)} 元
-          </div>
-        `;
         resetForm();
+        state.registrationNoticePending = true;
         switchView('report');
+        showRegistrationSuccessDialog(result.record);
         loadFrontCases();
         loadMyRecordsData();
       })
       .withFailureHandler(showError)
       .createRegistration(payload);
+  }
+
+  function findLocalDuplicateDonors(donors) {
+    const seen = {};
+    const duplicates = [];
+    donors.forEach((donor) => {
+      const key = `${normalizeDuplicateName(donor.name)}|${Number(donor.amount || 0)}`;
+      if (seen[key]) {
+        duplicates.push(donor);
+      } else {
+        seen[key] = true;
+      }
+    });
+    return duplicates;
+  }
+
+  function formatDuplicateLines(duplicates) {
+    return duplicates
+      .slice(0, 5)
+      .map((item) => `${item.name} ${money(item.amount)} 元${item.recordId ? `（${item.recordId}）` : ''}`)
+      .join('\n');
+  }
+
+  function normalizeDuplicateName(value) {
+    return String(value || '').trim().replace(/\s+/g, '').toLowerCase();
   }
 
   function resetForm() {
@@ -773,13 +859,22 @@ Christian GRADERT100"></textarea>
             <button class="reportChoiceButton" type="button" data-receipt-required="false">不需要收據</button>
           </div>
         </div>
-        <div id="inlineReceiptModeStep-${id}" class="reportStep hidden">
-          <div class="reportStepTitle">收據開立方式</div>
+        <div id="inlineReceiptFrequencyStep-${id}" class="reportStep hidden">
+          <div class="reportStepTitle">開立頻率</div>
           <div class="reportChoiceStack">
-            <button class="reportChoiceButton selected" type="button" data-receipt-mode="representativeTotal">代表人+總金額</button>
-            <button class="reportChoiceButton" type="button" data-receipt-mode="eachDonor">每位捐款人單獨開立</button>
-            <button class="reportChoiceButton" type="button" data-receipt-mode="other">其他開立方式</button>
+            <button class="reportChoiceButton" type="button" data-receipt-frequency="annual">年度開立</button>
+            <button class="reportChoiceButton" type="button" data-receipt-frequency="perPayment">每次開立</button>
+            <button class="reportChoiceButton" type="button" data-receipt-frequency="other">其他</button>
           </div>
+        </div>
+        <div id="inlineReceiptTargetStep-${id}" class="reportStep hidden">
+          <div class="reportStepTitle">開立對象</div>
+          <div class="reportChoiceStack">
+            <button class="reportChoiceButton" type="button" data-receipt-target="representativeTotal">代表人總額</button>
+            <button class="reportChoiceButton" type="button" data-receipt-target="eachDonor">每位捐款人單獨開立</button>
+          </div>
+        </div>
+        <div id="inlineReceiptEmailStep-${id}" class="reportStep hidden">
           <label class="emailInlineField">
             <span>Email地址：</span>
             <input id="inlineReceiptEmail-${id}" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com">
@@ -788,7 +883,7 @@ Christian GRADERT100"></textarea>
         <div id="inlineReportMemoStep-${id}" class="reportStep hidden">
           <label class="reportMemoField">
             <span>備註</span>
-            <textarea id="inlineReportMemo-${id}" rows="3" placeholder="其他補充"></textarea>
+            <textarea id="inlineReportMemo-${id}" rows="3" placeholder="其他補充；選其他時請說明收據開立方式"></textarea>
           </label>
         </div>
         <div class="inlineReportActions">
@@ -805,14 +900,17 @@ Christian GRADERT100"></textarea>
     const input = document.getElementById(`inlineReportLast5-${id}`);
     const error = document.getElementById(`inlineReportLast5Error-${id}`);
     const receiptStep = document.getElementById(`inlineReceiptStep-${id}`);
-    const receiptModeStep = document.getElementById(`inlineReceiptModeStep-${id}`);
+    const receiptFrequencyStep = document.getElementById(`inlineReceiptFrequencyStep-${id}`);
+    const receiptTargetStep = document.getElementById(`inlineReceiptTargetStep-${id}`);
+    const receiptEmailStep = document.getElementById(`inlineReceiptEmailStep-${id}`);
     const reportMemoStep = document.getElementById(`inlineReportMemoStep-${id}`);
     const receiptEmailInput = document.getElementById(`inlineReceiptEmail-${id}`);
     const reportMemoInput = document.getElementById(`inlineReportMemo-${id}`);
     const submitButton = form.querySelector('[type="submit"]');
     const submitNotice = document.getElementById(`inlineReportSubmitNotice-${id}`);
     let receiptRequired = null;
-    let receiptMode = 'representativeTotal';
+    let receiptFrequency = '';
+    let receiptTarget = '';
     let submitting = false;
 
     const updateState = () => {
@@ -824,15 +922,28 @@ Christian GRADERT100"></textarea>
       receiptStep.classList.toggle('hidden', !hasLast5);
       if (!hasLast5) {
         receiptRequired = null;
-        receiptModeStep.classList.add('hidden');
+        receiptFrequency = '';
+        receiptTarget = '';
+        receiptFrequencyStep.classList.add('hidden');
+        receiptTargetStep.classList.add('hidden');
+        receiptEmailStep.classList.add('hidden');
         reportMemoStep.classList.add('hidden');
         form.querySelectorAll('[data-receipt-required]').forEach((item) => item.classList.remove('selected'));
+        form.querySelectorAll('[data-receipt-frequency], [data-receipt-target]').forEach((item) => item.classList.remove('selected'));
       }
       const receiptChosen = receiptRequired !== null;
-      receiptModeStep.classList.toggle('hidden', !(hasLast5 && receiptRequired === true));
-      reportMemoStep.classList.toggle('hidden', !(hasLast5 && receiptChosen));
+      const needsReceipt = hasLast5 && receiptRequired === true;
+      const frequencyChosen = receiptFrequency === 'annual' || receiptFrequency === 'perPayment';
+      const otherReceipt = receiptFrequency === 'other';
+      const targetChosen = Boolean(receiptTarget);
+      receiptFrequencyStep.classList.toggle('hidden', !needsReceipt);
+      receiptTargetStep.classList.toggle('hidden', !(needsReceipt && frequencyChosen));
+      receiptEmailStep.classList.toggle('hidden', !needsReceipt);
+      reportMemoStep.classList.toggle('hidden', !(hasLast5 && (receiptRequired === false || needsReceipt)));
       const emailOk = receiptRequired !== true || receiptEmailInput.value.trim();
-      submitButton.disabled = !(hasLast5 && receiptChosen && emailOk);
+      const receiptDetailOk = receiptRequired === false || otherReceipt || (frequencyChosen && targetChosen);
+      const otherMemoOk = !otherReceipt || reportMemoInput.value.trim();
+      submitButton.disabled = !(hasLast5 && receiptChosen && receiptDetailOk && otherMemoOk && emailOk);
     };
 
     input.addEventListener('input', () => {
@@ -845,23 +956,40 @@ Christian GRADERT100"></textarea>
     form.querySelectorAll('[data-receipt-required]').forEach((button) => {
       button.addEventListener('click', () => {
         receiptRequired = button.dataset.receiptRequired === 'true';
+        receiptFrequency = '';
+        receiptTarget = '';
         form.querySelectorAll('[data-receipt-required]').forEach((item) => {
+          item.classList.toggle('selected', item === button);
+        });
+        form.querySelectorAll('[data-receipt-frequency], [data-receipt-target]').forEach((item) => item.classList.remove('selected'));
+        updateState();
+      });
+    });
+
+    form.querySelectorAll('[data-receipt-frequency]').forEach((button) => {
+      button.addEventListener('click', () => {
+        receiptFrequency = button.dataset.receiptFrequency;
+        receiptTarget = '';
+        form.querySelectorAll('[data-receipt-frequency]').forEach((item) => {
+          item.classList.toggle('selected', item === button);
+        });
+        form.querySelectorAll('[data-receipt-target]').forEach((item) => item.classList.remove('selected'));
+        updateState();
+      });
+    });
+
+    form.querySelectorAll('[data-receipt-target]').forEach((button) => {
+      button.addEventListener('click', () => {
+        receiptTarget = button.dataset.receiptTarget;
+        form.querySelectorAll('[data-receipt-target]').forEach((item) => {
           item.classList.toggle('selected', item === button);
         });
         updateState();
       });
     });
 
-    form.querySelectorAll('[data-receipt-mode]').forEach((button) => {
-      button.addEventListener('click', () => {
-        receiptMode = button.dataset.receiptMode;
-        form.querySelectorAll('[data-receipt-mode]').forEach((item) => {
-          item.classList.toggle('selected', item === button);
-        });
-      });
-    });
-
     receiptEmailInput.addEventListener('input', updateState);
+    reportMemoInput.addEventListener('input', updateState);
     form.querySelector('[data-inline-cancel]').addEventListener('click', () => form.remove());
     form.addEventListener('submit', (event) => {
       event.preventDefault();
@@ -895,7 +1023,7 @@ Christian GRADERT100"></textarea>
         .reportRegistrationDetails(recordId, {
           paymentLast5: input.value,
           receiptRequired,
-          receiptMode,
+          receiptMode: buildReceiptModeValue(receiptFrequency, receiptTarget),
           receiptEmail: receiptEmailInput.value.trim(),
           memo: reportMemoInput.value.trim(),
           lineUserId: state.lineUserId,
@@ -997,6 +1125,7 @@ Christian GRADERT100"></textarea>
 
   function caseStatusKind(caseInfo) {
     if (caseInfo.archived) return 'history';
+    if (String(caseInfo.status || '').trim() === '已額滿' || isCaseFullForUi(caseInfo)) return 'full';
     if (!isCaseOpen(caseInfo)) {
       return Number(caseInfo.remainingAmount || 0) <= 0 ? 'full' : 'closed';
     }
@@ -1010,13 +1139,13 @@ Christian GRADERT100"></textarea>
       || isNeedInfo(record.paymentStatus)
       || (isPaymentConfirmed(record.paymentStatus) && isReceiptPending(record.receiptStatus))
     ));
-    return isCaseOpen(caseInfo) || hasWork;
+    return !caseInfo.archived || hasWork;
   }
 
   function isCaseOpen(caseInfo) {
     const opened = String(caseInfo.opened ?? '').trim().toLowerCase();
     const status = String(caseInfo.status || '').trim();
-    if (['已結案', '結案', '關閉', '已關閉', '已額滿'].includes(status)) return false;
+    if (['已結案', '結案', '關閉', '已關閉', '已額滿', '未開放'].includes(status)) return false;
     return caseInfo.opened === true
       || opened === 'true'
       || opened === '是'
@@ -1103,8 +1232,8 @@ Christian GRADERT100"></textarea>
           <span>對帳、收據、待補件、取消與批次修正。</span>
         </button>
         <button class="adminModeButton archive" type="button" data-case-archive-action="${state.adminCaseScope === 'history' ? 'restore' : 'archive'}">
-          <strong>${state.adminCaseScope === 'history' ? '恢復為目前專案' : '歸入歷史專案'}</strong>
-          <span>${state.adminCaseScope === 'history' ? '讓此專案重新出現在目前專案列表。' : '把專案從目前列表收起，之後可在歷史專案搜尋恢復。'}</span>
+          <strong>${state.adminCaseScope === 'history' ? '恢復為目前專案' : '專案結案'}</strong>
+          <span>${state.adminCaseScope === 'history' ? '恢復後仍為未開放，請確認狀態後再開放登記。' : '結案後會從目前專案收起，前台不再顯示。'}</span>
         </button>
       </section>
     `;
@@ -1138,7 +1267,7 @@ Christian GRADERT100"></textarea>
   function createHelperBatchFromAdmin() {
     if (!state.adminCaseId) return;
     if (!state.lineUserId) {
-      document.getElementById('adminHelperBatchResult').textContent = '尚未取得小幫手 LINE 身分，請從 LINE 重新開啟。';
+      document.getElementById('adminHelperBatchResult').innerHTML = '<div class="notice">尚未取得小幫手 LINE 身分，請從 LINE 重新開啟。</div>';
       return;
     }
     const input = document.getElementById('adminHelperBatchInput');
@@ -1147,7 +1276,7 @@ Christian GRADERT100"></textarea>
     const representativeName = representativeInput?.value.trim() || '';
     const text = input?.value.trim() || '';
     if (!representativeName) {
-      result.textContent = '請先輸入代表人姓名，捐款者會用代表人找到這筆總額回報。';
+      result.innerHTML = '<div class="notice">請先輸入代表人姓名，捐款者會用代表人找到這筆總額回報。</div>';
       return;
     }
     const donors = text
@@ -1157,10 +1286,10 @@ Christian GRADERT100"></textarea>
       .map(parseDonorToken)
       .filter(Boolean);
     if (!donors.length) {
-      result.textContent = '請用「姓名100、姓名200」格式輸入。';
+      result.innerHTML = '<div class="notice">請用「姓名100、姓名200」格式輸入。</div>';
       return;
     }
-    result.textContent = '正在建立代填資料...';
+    result.innerHTML = '<div class="notice">正在建立代填資料...</div>';
     const totalAmount = donors.reduce((sum, donor) => sum + donor.amount, 0);
     result.innerHTML = `
       <div class="notice">目前查詢餘額中，準備建立 1 筆代表人總額回報，含 ${donors.length} 位芳名，合計 ${money(totalAmount)} 元。請不要重複點擊。</div>
@@ -1212,7 +1341,7 @@ Christian GRADERT100"></textarea>
 
   function setCurrentCaseArchiveState(archive) {
     if (!state.adminCaseId) return;
-    const actionText = archive ? '歸入歷史專案' : '恢復為目前專案';
+    const actionText = archive ? '專案結案' : '恢復為目前專案';
     if (!confirm(`確定要將 ${state.adminCaseId} ${actionText}？`)) return;
     setBusy(true);
     google.script.run
@@ -1573,6 +1702,26 @@ Christian GRADERT100"></textarea>
     const confirmButton = overlay.querySelector('.reportSuccessConfirm');
     confirmButton.focus();
     confirmButton.addEventListener('click', () => closeCurrentWindow(overlay));
+  }
+
+  function showRegistrationSuccessDialog(record) {
+    if (!state.registrationNoticePending) return;
+    state.registrationNoticePending = false;
+    document.querySelectorAll('.reportSuccessOverlay').forEach((item) => item.remove());
+    const overlay = document.createElement('div');
+    overlay.className = 'reportSuccessOverlay';
+    overlay.innerHTML = `
+      <div class="reportSuccessDialog" role="dialog" aria-modal="true" aria-labelledby="registrationSuccessTitle">
+        <h2 id="registrationSuccessTitle">登記完成</h2>
+        <p>登記編號：${escapeHtml(record?.recordId || '')}</p>
+        <p>請先完成匯款，完成後請在本頁填寫回報。</p>
+        <button class="reportSuccessConfirm" type="button">確定</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const confirmButton = overlay.querySelector('.reportSuccessConfirm');
+    confirmButton.focus();
+    confirmButton.addEventListener('click', () => overlay.remove());
   }
 
   function closeCurrentWindow(overlay) {

@@ -238,7 +238,7 @@ function getFrontInitialData(options) {
 function getFrontCases() {
   const allCases = listAllCases_();
   const cases = allCases
-    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row));
+    .filter(isFrontVisibleCase_);
 
   return {
     cases,
@@ -256,7 +256,7 @@ function getMyRegistrationData(options) {
 
 function listCases() {
   return listAllCases_()
-    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row));
+    .filter((row) => isOpen_(row.opened) && !isCaseFull_(row) && !isCaseClosed_(row));
 }
 
 function listRegistrationsForLineUser_(lineUserId) {
@@ -301,6 +301,7 @@ function setCaseArchived(caseId, archived) {
   const archivedIndex = findHeaderIndex_(headers, FIELD_ALIASES.archived);
   const updatedAtIndex = findHeaderIndex_(headers, FIELD_ALIASES.updatedAt);
   const openedIndex = findHeaderIndex_(headers, FIELD_ALIASES.opened);
+  const statusIndex = findHeaderIndex_(headers, FIELD_ALIASES.status);
   const targetIndex = data.findIndex((row, index) => index > 0 && row[caseIdIndex] === caseId);
   if (targetIndex === -1) throw new Error(`找不到個案：${caseId}`);
 
@@ -308,8 +309,11 @@ function setCaseArchived(caseId, archived) {
   if (updatedAtIndex !== -1) {
     sheet.getRange(targetIndex + 1, updatedAtIndex + 1).setValue(new Date());
   }
-  if (archived && openedIndex !== -1) {
+  if (openedIndex !== -1) {
     sheet.getRange(targetIndex + 1, openedIndex + 1).setValue('否');
+  }
+  if (statusIndex !== -1) {
+    sheet.getRange(targetIndex + 1, statusIndex + 1).setValue(archived ? '已結案' : '未開放');
   }
   return { ok: true, caseId, archived: Boolean(archived) };
 }
@@ -318,6 +322,37 @@ function listRegistrations() {
   return readAllCaseRegistrationRows_()
     .filter((row) => row.recordId)
     .map(normalizeRegistration_);
+}
+
+function checkDuplicateRegistration(payload) {
+  payload = payload || {};
+  const targetCaseId = String(payload.caseId || '').trim();
+  const donors = (payload.donors || [])
+    .map((donor) => ({
+      name: normalizeDuplicateName_(donor.name),
+      amount: Number(donor.amount || 0)
+    }))
+    .filter((donor) => donor.name && donor.amount > 0);
+  if (!targetCaseId || !donors.length) return { duplicates: [] };
+
+  const targets = {};
+  donors.forEach((donor) => {
+    targets[`${donor.name}|${donor.amount}`] = donor;
+  });
+
+  const duplicates = listRegistrationsForCase_(targetCaseId)
+    .filter((record) => normalizePaymentStatus_(record.paymentStatus) !== '已取消')
+    .flatMap((record) => record.donors
+      .map((donor) => ({
+        recordId: record.recordId,
+        representativeName: record.representativeName,
+        name: String(donor.name || '').trim(),
+        amount: Number(donor.amount || 0)
+      }))
+      .filter((donor) => targets[`${normalizeDuplicateName_(donor.name)}|${donor.amount}`]))
+    .slice(0, 10);
+
+  return { duplicates };
 }
 
 function searchRegistrationsForReport(caseId, keyword) {
@@ -979,7 +1014,7 @@ function validateCaseStillOpenForRegistration_(caseId, totalAmount) {
   const target = rows.find((row) => row.caseId === caseId);
   if (!target) throw new Error(`找不到個案：${caseId}`);
   const currentAmount = calculateCaseCurrentAmount_(caseId);
-  if (!isOpen_(target.opened) || isCaseFull_({ targetAmount: target.targetAmount, currentAmount })) {
+  if (isCaseClosed_(target) || String(target.status || '').trim() === '已額滿' || !isOpen_(target.opened) || isCaseFull_({ targetAmount: target.targetAmount, currentAmount })) {
     throw new Error('此個案目前已額滿或未開放，請重新選擇個案。');
   }
 
@@ -999,6 +1034,20 @@ function isCaseFull_(row) {
   const targetAmount = Number(row.targetAmount || 0);
   const currentAmount = Number(row.currentAmount || 0);
   return targetAmount > 0 && currentAmount >= targetAmount;
+}
+
+function isCaseClosed_(row) {
+  const status = String(row && row.status || '').trim();
+  return ['已結案', '結案', '關閉', '已關閉', '未開放'].indexOf(status) !== -1 || isYes_(row && row.archived);
+}
+
+function isFrontVisibleCase_(row) {
+  if (isCaseClosed_(row)) return false;
+  return isOpen_(row.opened) || String(row.status || '').trim() === '已額滿' || isCaseFull_(row);
+}
+
+function normalizeDuplicateName_(value) {
+  return String(value || '').trim().replace(/\s+/g, '').toLowerCase();
 }
 
 function isYes_(value) {
@@ -1033,6 +1082,10 @@ function receiptModeLabel_(value) {
   return {
     representativeTotal: '代表人+總金額',
     eachDonor: '每位捐款人單獨開立',
+    annualRepresentativeTotal: '年度開立｜代表人總額',
+    perPaymentRepresentativeTotal: '每次開立｜代表人總額',
+    annualEachDonor: '年度開立｜每位捐款人單獨開立',
+    perPaymentEachDonor: '每次開立｜每位捐款人單獨開立',
     other: '其他開立方式'
   }[String(value || '')] || String(value || '代表人+總金額');
 }
