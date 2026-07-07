@@ -337,7 +337,7 @@ function checkDuplicateRegistration(payload) {
 
   const targets = {};
   donors.forEach((donor) => {
-    targets[`${donor.name}|${donor.amount}`] = donor;
+    targets[donor.name] = donor;
   });
 
   const duplicates = listRegistrationsForCase_(targetCaseId)
@@ -349,7 +349,7 @@ function checkDuplicateRegistration(payload) {
         name: String(donor.name || '').trim(),
         amount: Number(donor.amount || 0)
       }))
-      .filter((donor) => targets[`${normalizeDuplicateName_(donor.name)}|${donor.amount}`]))
+      .filter((donor) => targets[normalizeDuplicateName_(donor.name)]))
     .slice(0, 10);
 
   return { duplicates };

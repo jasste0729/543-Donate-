@@ -560,9 +560,18 @@ Christian GRADERT100"></textarea>
   }
 
   function parseBulkDonors() {
+    const button = document.getElementById('parseDonorsButton');
+    if (button?.disabled) return;
+    if (button) {
+      button.disabled = true;
+      button.textContent = '加入中';
+    }
+    els.bulkDonorResult.innerHTML = '<div class="notice">正在加入名單，請稍候...</div>';
+
     const text = els.bulkDonors.value.trim();
     if (!text) {
-      els.bulkDonorResult.textContent = '請先貼上芳名與金額。';
+      els.bulkDonorResult.innerHTML = '<div class="notice">請先貼上芳名與金額。</div>';
+      restoreParseDonorsButton(button);
       return;
     }
 
@@ -574,7 +583,8 @@ Christian GRADERT100"></textarea>
       .filter(Boolean);
 
     if (!parsed.length) {
-      els.bulkDonorResult.textContent = '格式看不出來，請用「姓名100、姓名200」這種格式。';
+      els.bulkDonorResult.innerHTML = '<div class="notice">格式看不出來，請用「姓名100、姓名200」這種格式。</div>';
+      restoreParseDonorsButton(button);
       return;
     }
 
@@ -585,7 +595,20 @@ Christian GRADERT100"></textarea>
 
     parsed.forEach((donor) => addDonorRow(donor.name, donor.amount));
     updateTotal();
-    els.bulkDonorResult.textContent = `已加入 ${parsed.length} 位，合計 ${money(parsed.reduce((sum, donor) => sum + donor.amount, 0))} 元`;
+    els.bulkDonors.value = '';
+    els.bulkDonorResult.innerHTML = `
+      <div class="success">
+        已加入 ${parsed.length} 位，合計 ${money(parsed.reduce((sum, donor) => sum + donor.amount, 0))} 元。<br>
+        輸入框已清空，可繼續貼下一批名單。
+      </div>
+    `;
+    restoreParseDonorsButton(button);
+  }
+
+  function restoreParseDonorsButton(button) {
+    if (!button) return;
+    button.disabled = false;
+    button.textContent = '名單確認';
   }
 
   function parseDonorToken(token) {
@@ -612,7 +635,7 @@ Christian GRADERT100"></textarea>
     els.totalAmount.textContent = `${money(total)} 元`;
   }
 
-  function submitRegistration() {
+  async function submitRegistration() {
     if (!state.lineUserId) {
       els.frontResult.innerHTML = '<div class="notice">尚未取得 LINE 身分，請從 LINE 重新開啟後再送出。</div>';
       return;
@@ -641,20 +664,30 @@ Christian GRADERT100"></textarea>
 
     const localDuplicates = findLocalDuplicateDonors(donors);
     if (localDuplicates.length) {
-      const message = `這次填寫內已有重複芳名與金額：\n${formatDuplicateLines(localDuplicates)}\n\n仍要送出嗎？`;
-      if (!confirm(message)) return;
+      const confirmed = await showDuplicateConfirmDialog({
+        title: '發現重複芳名',
+        message: '這次填寫內已有重複芳名，請確認是否仍要送出。',
+        duplicates: localDuplicates,
+        confirmText: '仍要送出'
+      });
+      if (!confirmed) return;
     }
 
     setBusy(true);
     els.frontResult.innerHTML = '<div class="notice">正在檢查是否重複登記，請稍候。</div>';
     google.script.run
-      .withSuccessHandler((result) => {
+      .withSuccessHandler(async (result) => {
         const duplicates = result?.duplicates || [];
         if (duplicates.length) {
           setBusy(false);
-          const message = `已有相同芳名與金額的登記紀錄：\n${formatDuplicateLines(duplicates)}\n\n可能是重複填寫，仍要送出嗎？`;
-          if (!confirm(message)) {
-            els.frontResult.innerHTML = '<div class="notice">已取消送出，請確認名單與金額。</div>';
+          const confirmed = await showDuplicateConfirmDialog({
+            title: '發現重複芳名',
+            message: '系統已有相同芳名的登記紀錄，請確認是否仍要送出。',
+            duplicates,
+            confirmText: '仍要送出'
+          });
+          if (!confirmed) {
+            els.frontResult.innerHTML = '<div class="notice">已取消送出，請確認名單。</div>';
             return;
           }
           setBusy(true);
@@ -684,7 +717,7 @@ Christian GRADERT100"></textarea>
     const seen = {};
     const duplicates = [];
     donors.forEach((donor) => {
-      const key = `${normalizeDuplicateName(donor.name)}|${Number(donor.amount || 0)}`;
+      const key = normalizeDuplicateName(donor.name);
       if (seen[key]) {
         duplicates.push(donor);
       } else {
@@ -699,6 +732,42 @@ Christian GRADERT100"></textarea>
       .slice(0, 5)
       .map((item) => `${item.name} ${money(item.amount)} 元${item.recordId ? `（${item.recordId}）` : ''}`)
       .join('\n');
+  }
+
+  function showDuplicateConfirmDialog(options) {
+    return new Promise((resolve) => {
+      document.querySelectorAll('.duplicateConfirmOverlay').forEach((item) => item.remove());
+      const overlay = document.createElement('div');
+      overlay.className = 'reportSuccessOverlay duplicateConfirmOverlay';
+      const duplicateHtml = (options.duplicates || [])
+        .slice(0, 8)
+        .map((item) => `
+          <li>
+            <strong>${escapeHtml(item.name || '')}</strong>
+            <span>${money(item.amount)} 元${item.recordId ? `｜既有編號 ${escapeHtml(item.recordId)}` : ''}</span>
+          </li>
+        `)
+        .join('');
+      overlay.innerHTML = `
+        <div class="reportSuccessDialog duplicateConfirmDialog" role="dialog" aria-modal="true" aria-labelledby="duplicateConfirmTitle">
+          <h2 id="duplicateConfirmTitle">${escapeHtml(options.title || '發現重複芳名')}</h2>
+          <p>${escapeHtml(options.message || '請確認是否仍要送出。')}</p>
+          <ul class="duplicateList">${duplicateHtml}</ul>
+          <div class="duplicateConfirmActions">
+            <button class="duplicateCancel" type="button">取消</button>
+            <button class="duplicateSubmit" type="button">${escapeHtml(options.confirmText || '仍要送出')}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      const finish = (value) => {
+        overlay.remove();
+        resolve(value);
+      };
+      overlay.querySelector('.duplicateCancel').addEventListener('click', () => finish(false));
+      overlay.querySelector('.duplicateSubmit').addEventListener('click', () => finish(true));
+      overlay.querySelector('.duplicateCancel').focus();
+    });
   }
 
   function normalizeDuplicateName(value) {
