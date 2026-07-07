@@ -277,19 +277,6 @@
     box-shadow: inset 6px 0 0 #f97316;
   }
 
-  .caseFullBanner {
-    display: block;
-    width: fit-content;
-    max-width: 100%;
-    padding: 8px 12px;
-    border-radius: 12px;
-    color: #ffffff;
-    background: #ea580c;
-    font-size: clamp(22px, 5.5vw, 34px);
-    font-weight: 950;
-    line-height: 1.15;
-  }
-
   .caseCard.theme0 {
     --case-color: #059669;
     --case-soft: #ecfdf5;
@@ -1733,6 +1720,18 @@
     font-size: clamp(24px, 6.2vw, 40px);
     line-height: 1.15;
     font-weight: 950;
+  }
+
+  #registrationView .caseAmount.fullAmount {
+    min-height: 130px;
+    place-items: center;
+    background: #fff7ed;
+  }
+
+  #registrationView .caseAmount.fullAmount strong {
+    color: #ea580c;
+    font-size: clamp(42px, 10vw, 66px);
+    line-height: 1.05;
   }
 
   #registrationView .caseBar {
