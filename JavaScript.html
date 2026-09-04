@@ -14,6 +14,12 @@
     adminCaseSearch: '',
     adminSelectedRecords: new Set(),
     adminToken: '',
+    paymentReportMode: 'idle',
+    reportSelectedRecords: new Set(),
+    reportEditingHostId: '',
+    reportEditingRecordIds: [],
+    reportSelectionTouched: false,
+    quickReportRecords: [],
     registrationNoticePending: false
   };
 
@@ -277,6 +283,21 @@ Christian GRADERT100"></textarea>
       if (event.target.closest('#quickReportSearchButton')) {
         searchQuickReportRecords();
       }
+      if (event.target.closest('#batchReportButton')) {
+        openSelectedReportForm();
+      }
+    });
+    els.myRecords.addEventListener('change', (event) => {
+      if (!event.target.classList.contains('reportRecordCheckbox')) return;
+      if (state.paymentReportMode === 'editingBatchReport') return;
+      state.paymentReportMode = 'selecting';
+      state.reportSelectionTouched = true;
+      if (event.target.checked) {
+        state.reportSelectedRecords.add(event.target.value);
+      } else {
+        state.reportSelectedRecords.delete(event.target.value);
+      }
+      renderMyRecords();
     });
     els.donorList.addEventListener('input', updateTotal);
     els.donorList.addEventListener('click', (event) => {
@@ -378,20 +399,39 @@ Christian GRADERT100"></textarea>
 
     setBusy(true);
     renderLoadingCases();
+    renderLoadingAdminCases();
     google.script.run
       .withSuccessHandler((data) => {
         state.cases = data.cases || [];
         state.reportCases = data.reportCases || data.cases || [];
-        state.registrations = data.registrations || [];
+        state.registrations = [];
         renderCases();
         renderMyRecords();
         renderAdminRows();
         setBusy(false);
+        loadAdminRegistrationsData();
       })
       .withFailureHandler(showError)
-      .getInitialData({
-        lineUserId: state.lineUserId,
-        admin: true,
+      .getAdminCasesData({
+        adminToken: getAdminToken()
+      });
+  }
+
+  function loadAdminRegistrationsData() {
+    google.script.run
+      .withSuccessHandler((data) => {
+        state.registrations = data.registrations || [];
+        renderAdminRows();
+      })
+      .withFailureHandler((error) => {
+        const rawMessage = error.message || error;
+        const message = escapeHtml(rawMessage);
+        renderAdminRows();
+        if (els.adminCaseSummary) {
+          els.adminCaseSummary.insertAdjacentHTML('afterbegin', `<div class="notice">登記資料讀取失敗：${message}</div>`);
+        }
+      })
+      .getAdminRegistrationsData({
         adminToken: getAdminToken()
       });
   }
@@ -421,6 +461,11 @@ Christian GRADERT100"></textarea>
     google.script.run
       .withSuccessHandler((data) => {
         state.registrations = data.registrations || [];
+        if (state.paymentReportMode !== 'editingBatchReport') {
+          state.reportSelectedRecords.clear();
+          state.reportSelectionTouched = false;
+          state.paymentReportMode = 'idle';
+        }
         state.myRecordsLoading = false;
         renderMyRecords();
       })
@@ -437,6 +482,12 @@ Christian GRADERT100"></textarea>
   function renderLoadingCases() {
     if (els.caseCards) {
       els.caseCards.innerHTML = '<div class="notice">正在讀取開放個案...</div>';
+    }
+  }
+
+  function renderLoadingAdminCases() {
+    if (els.adminCaseSummary && state.currentView === 'admin') {
+      els.adminCaseSummary.innerHTML = '<div class="notice">正在讀取後台專案...</div>';
     }
   }
 
@@ -803,25 +854,44 @@ Christian GRADERT100"></textarea>
     const mine = state.registrations
       .filter((record) => !isCancelled(record.paymentStatus))
       .filter((record) => record.lineUserId === state.lineUserId)
+      .filter((record) => isFrontReportCaseId(record.caseId))
       .filter((record) => isPaymentPending(record.paymentStatus) || isReported(record.paymentStatus))
       .slice(0, 20);
+    syncReportSelection(mine);
+    const isEditingBatchReport = state.paymentReportMode === 'editingBatchReport';
+    const visibleRecords = isEditingBatchReport
+      ? mine.filter((record) => record.recordId === state.reportEditingHostId)
+      : mine;
 
-    const statusHtml = mine.length ? mine.map((record) => {
+    const statusHtml = visibleRecords.length ? visibleRecords.map((record) => {
       const reported = isReported(record.paymentStatus);
       const reportLabel = reported ? '更正回報' : '付款回報';
-      return `
-        <article class="recordCard" data-report-host="${escapeAttr(record.recordId)}">
-          <div class="recordActionRow">
+      const checked = state.reportSelectedRecords.has(record.recordId);
+      const recordInfoHtml = isEditingBatchReport
+        ? `
             <div class="recordInfoPanel">
               <strong>${escapeHtml(record.recordId)}</strong>
               <span>金額 ${money(record.totalAmount)} 元</span>
             </div>
+          `
+        : `
+            <label class="recordInfoPanel">
+              <input class="reportRecordCheckbox" type="checkbox" value="${escapeAttr(record.recordId)}" ${checked ? 'checked' : ''}>
+              <strong>${escapeHtml(record.recordId)}</strong>
+              <span>金額 ${money(record.totalAmount)} 元</span>
+            </label>
+          `;
+      return `
+        <article class="recordCard" data-report-host="${escapeAttr(record.recordId)}">
+          <div class="recordActionRow">
+            ${recordInfoHtml}
             <div class="recordStatusPanel">
               <div>付款狀態 ${statusPill(record.paymentStatus, 'payment')}</div>
               <div>收據狀態 ${statusPill(record.receiptStatus, 'receipt')}</div>
             </div>
-            <button class="reportButton ${reported ? 'reported' : ''}" type="button" onclick="reportPayment('${escapeAttr(record.recordId)}')">${reportLabel}</button>
+            ${isEditingBatchReport ? '' : `<button class="reportButton ${reported ? 'reported' : ''}" type="button" onclick="reportPayment('${escapeAttr(record.recordId)}')">${reportLabel}</button>`}
           </div>
+          ${isEditingBatchReport && record.recordId === state.reportEditingHostId ? renderInlineReportForm(record.recordId) : ''}
         </article>
       `;
     }).join('') : '<div class="notice">目前沒有待回報或待確認的紀錄。</div>';
@@ -829,13 +899,99 @@ Christian GRADERT100"></textarea>
     els.myRecords.innerHTML = `
       <div class="myStatusSection">
         ${statusHtml}
+        ${isEditingBatchReport ? '' : renderBatchReportToolbar(mine)}
       </div>
-      ${renderQuickReportPanel()}
+      ${isEditingBatchReport ? '' : renderQuickReportPanel()}
+    `;
+    if (isEditingBatchReport && state.reportEditingHostId) {
+      bindInlineReportForm(state.reportEditingHostId);
+    }
+  }
+
+  function getReportableMyRecords() {
+    return state.registrations
+      .filter((record) => !isCancelled(record.paymentStatus))
+      .filter((record) => record.lineUserId === state.lineUserId)
+      .filter((record) => isFrontReportCaseId(record.caseId))
+      .filter((record) => isPaymentPending(record.paymentStatus) || isReported(record.paymentStatus));
+  }
+
+  function syncReportSelection(records) {
+    if (state.paymentReportMode === 'editingBatchReport') return;
+    state.paymentReportMode = records.length ? 'selecting' : 'idle';
+    const validIds = new Set(records.map((record) => record.recordId));
+    Array.from(state.reportSelectedRecords).forEach((recordId) => {
+      if (!validIds.has(recordId)) state.reportSelectedRecords.delete(recordId);
+    });
+  }
+
+  function selectedReportRecords(records = getReportableMyRecords()) {
+    return records.filter((record) => state.reportSelectedRecords.has(record.recordId));
+  }
+
+  function selectedReportTotal(records = getReportableMyRecords()) {
+    return selectedReportRecords(records)
+      .reduce((sum, record) => sum + Number(record.totalAmount || 0), 0);
+  }
+
+  function setReportEditingRecordIds(recordIds) {
+    state.reportEditingRecordIds = Array.from(new Set((recordIds || []).filter(Boolean)));
+  }
+
+  function isEditingReportRecordSelected(recordId) {
+    return state.reportEditingRecordIds.includes(recordId);
+  }
+
+  function enterBatchReportEditing(recordId, recordIds) {
+    state.paymentReportMode = 'editingBatchReport';
+    state.reportEditingHostId = recordId;
+    setReportEditingRecordIds(recordIds && recordIds.length ? recordIds : [recordId]);
+  }
+
+  function cancelBatchReportEditing(recordId) {
+    document.getElementById(`inlineReportForm-${cssId(recordId)}`)?.remove();
+    state.paymentReportMode = 'selecting';
+    state.reportEditingHostId = '';
+    state.reportEditingRecordIds = [];
+    renderMyRecords();
+  }
+
+  function resetPaymentReportMode() {
+    state.paymentReportMode = 'idle';
+    state.reportSelectedRecords.clear();
+    state.reportEditingHostId = '';
+    state.reportEditingRecordIds = [];
+    state.reportSelectionTouched = false;
+    document.querySelectorAll('.inlineReportForm').forEach((form) => form.remove());
+  }
+
+  function renderBatchReportToolbar(records) {
+    if (state.paymentReportMode === 'editingBatchReport') return '';
+    if (!records.length) return '';
+    const selected = selectedReportRecords(records);
+    const selectedCountText = selected.length
+      ? `已選 ${selected.length} 筆｜本次付款總額：${money(selectedReportTotal(records))} 元`
+      : `本次付款總額：0 元`;
+    const buttonText = selected.length ? '填寫勾選回報' : '請先選擇付款紀錄';
+    return `
+      <div class="notice">
+        ${selectedCountText}
+        <button id="batchReportButton" class="reportButton" type="button" ${selected.length ? '' : 'disabled'}>${buttonText}</button>
+      </div>
     `;
   }
 
+  function openSelectedReportForm() {
+    if (state.paymentReportMode === 'editingBatchReport') return;
+    const selected = selectedReportRecords();
+    if (!selected.length) return;
+    enterBatchReportEditing(selected[0].recordId, selected.map((record) => record.recordId));
+    renderMyRecords();
+    setTimeout(() => document.getElementById(`inlineReportLast5-${cssId(selected[0].recordId)}`)?.focus(), 50);
+  }
+
   function renderQuickReportPanel() {
-    const cases = state.reportCases.length ? state.reportCases : state.cases;
+    const cases = getFrontReportCases();
     const caseOptions = cases.map((item) => `
       <option value="${escapeAttr(item.caseId)}">${escapeHtml(item.caseId)} ${escapeHtml(item.title || '')}</option>
     `).join('');
@@ -856,6 +1012,20 @@ Christian GRADERT100"></textarea>
         </div>
       </section>
     `;
+  }
+
+  function getFrontReportCases() {
+    const cases = state.reportCases.length ? state.reportCases : state.cases;
+    return cases.filter((item) => !isCaseClosedForFront(item));
+  }
+
+  function isFrontReportCaseId(caseId) {
+    return getFrontReportCases().some((item) => item.caseId === caseId);
+  }
+
+  function isCaseClosedForFront(item) {
+    const status = String(item?.status || '').trim();
+    return item?.archived === true || ['已結案', '結案', '關閉', '已關閉', '未開放'].includes(status);
   }
 
   function toggleQuickReport() {
@@ -883,6 +1053,7 @@ Christian GRADERT100"></textarea>
   function renderQuickReportResults(records) {
     const resultBox = document.getElementById('quickReportResult');
     if (!resultBox) return;
+    state.quickReportRecords = records || [];
     if (!records.length) {
       resultBox.innerHTML = '<div class="notice">查無資料，請確認專案、代表人或芳名。</div>';
       return;
@@ -899,14 +1070,60 @@ Christian GRADERT100"></textarea>
     `).join('');
   }
 
+  function getReportBatchCandidates(recordId) {
+    const records = [
+      ...getReportableMyRecords(),
+      ...state.quickReportRecords
+    ];
+    const byId = {};
+    records.forEach((record) => {
+      if (!record || !record.recordId) return;
+      if (isCancelled(record.paymentStatus)) return;
+      if (!(isPaymentPending(record.paymentStatus) || isReported(record.paymentStatus))) return;
+      if (record.lineUserId && record.lineUserId !== state.lineUserId) return;
+      if (!isFrontReportCaseId(record.caseId)) return;
+      byId[record.recordId] = record;
+    });
+    return Object.values(byId).sort((a, b) => {
+      if (a.recordId === recordId) return -1;
+      if (b.recordId === recordId) return 1;
+      return String(a.recordId).localeCompare(String(b.recordId));
+    });
+  }
+
+  function renderInlineBatchSummary(records) {
+    const selected = records.filter((record) => isEditingReportRecordSelected(record.recordId));
+    const total = selected.reduce((sum, record) => sum + Number(record.totalAmount || 0), 0);
+    const lines = selected.map((record) => `${escapeHtml(record.recordId)}　${money(record.totalAmount)} 元`).join('<br>');
+    return `
+      <strong>本次付款</strong><br>
+      已選 ${selected.length} 筆<br>
+      合計 ${money(total)} 元
+      ${lines ? `<div>${lines}</div>` : '<div>請至少選擇一筆。</div>'}
+    `;
+  }
+
   function reportPayment(recordId) {
+    if (state.paymentReportMode === 'editingBatchReport') {
+      if (state.reportEditingHostId !== recordId) return;
+    } else {
+      state.reportSelectedRecords.clear();
+      state.reportSelectedRecords.add(recordId);
+      enterBatchReportEditing(recordId, [recordId]);
+    }
+    state.reportSelectionTouched = true;
     const existing = document.getElementById(`inlineReportForm-${cssId(recordId)}`);
-    document.querySelectorAll('.inlineReportForm').forEach((form) => form.remove());
     if (existing) return;
+    document.querySelectorAll('.inlineReportForm').forEach((form) => form.remove());
 
     const host = document.querySelector(`[data-report-host="${escapeAttr(recordId)}"]`)
       || document.querySelector(`[data-record-id="${escapeAttr(recordId)}"]`);
     if (!host) return;
+    if (host.hasAttribute('data-report-host')) {
+      renderMyRecords();
+      setTimeout(() => document.getElementById(`inlineReportLast5-${cssId(recordId)}`)?.focus(), 50);
+      return;
+    }
     host.insertAdjacentHTML('beforeend', renderInlineReportForm(recordId));
     bindInlineReportForm(recordId);
     setTimeout(() => document.getElementById(`inlineReportLast5-${cssId(recordId)}`)?.focus(), 50);
@@ -914,9 +1131,22 @@ Christian GRADERT100"></textarea>
 
   function renderInlineReportForm(recordId) {
     const id = cssId(recordId);
+    const candidates = getReportBatchCandidates(recordId);
     return `
       <form id="inlineReportForm-${id}" class="inlineReportForm" data-inline-report-id="${escapeAttr(recordId)}">
         <h3>付款回報</h3>
+        <div id="inlineBatchSummary-${id}" class="notice">${renderInlineBatchSummary(candidates)}</div>
+        <div class="reportStep">
+          <div class="reportStepTitle">本次付款紀錄</div>
+          <div class="reportChoiceStack">
+            ${candidates.map((record) => `
+              <label class="reportChoiceButton ${isEditingReportRecordSelected(record.recordId) ? 'selected' : ''}">
+                <input class="inlineBatchCheckbox" type="checkbox" value="${escapeAttr(record.recordId)}" ${isEditingReportRecordSelected(record.recordId) ? 'checked' : ''}>
+                ${escapeHtml(record.recordId)}　${money(record.totalAmount)} 元
+              </label>
+            `).join('')}
+          </div>
+        </div>
         <p>請先輸入匯款帳號末 5 碼；現金請輸入 00000。</p>
         <label class="inlineReportField">
           <span>帳號末 5 碼</span>
@@ -980,16 +1210,28 @@ Christian GRADERT100"></textarea>
     const reportMemoInput = document.getElementById(`inlineReportMemo-${id}`);
     const submitButton = form.querySelector('[type="submit"]');
     const submitNotice = document.getElementById(`inlineReportSubmitNotice-${id}`);
+    const batchSummary = document.getElementById(`inlineBatchSummary-${id}`);
+    const batchCheckboxes = Array.from(form.querySelectorAll('.inlineBatchCheckbox'));
+    const candidates = getReportBatchCandidates(recordId);
     let receiptRequired = null;
     let receiptFrequency = '';
     let receiptTarget = '';
     let submitting = false;
+
+    const selectedRecordIds = () => batchCheckboxes
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => checkbox.value);
 
     const updateState = () => {
       if (submitting) {
         submitButton.disabled = true;
         return;
       }
+      batchSummary.innerHTML = renderInlineBatchSummary(candidates);
+      batchCheckboxes.forEach((checkbox) => {
+        checkbox.closest('.reportChoiceButton')?.classList.toggle('selected', checkbox.checked);
+      });
+      const hasSelection = selectedRecordIds().length > 0;
       const hasLast5 = /^\d{5}$/.test(input.value);
       receiptStep.classList.toggle('hidden', !hasLast5);
       if (!hasLast5) {
@@ -1015,8 +1257,15 @@ Christian GRADERT100"></textarea>
       const emailOk = receiptRequired !== true || receiptEmailInput.value.trim();
       const receiptDetailOk = receiptRequired === false || otherReceipt || (frequencyChosen && targetChosen);
       const otherMemoOk = !otherReceipt || reportMemoInput.value.trim();
-      submitButton.disabled = !(hasLast5 && receiptChosen && receiptDetailOk && otherMemoOk && emailOk);
+      submitButton.disabled = !(hasSelection && hasLast5 && receiptChosen && receiptDetailOk && otherMemoOk && emailOk);
     };
+
+    batchCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener('change', () => {
+        setReportEditingRecordIds(selectedRecordIds());
+        updateState();
+      });
+    });
 
     input.addEventListener('input', () => {
       const digits = input.value.replace(/\D/g, '').slice(0, 5);
@@ -1062,7 +1311,7 @@ Christian GRADERT100"></textarea>
 
     receiptEmailInput.addEventListener('input', updateState);
     reportMemoInput.addEventListener('input', updateState);
-    form.querySelector('[data-inline-cancel]').addEventListener('click', () => form.remove());
+    form.querySelector('[data-inline-cancel]').addEventListener('click', () => cancelBatchReportEditing(recordId));
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       if (submitButton.disabled || submitting) return;
@@ -1076,9 +1325,10 @@ Christian GRADERT100"></textarea>
       });
       setBusy(true);
       google.script.run
-        .withSuccessHandler(() => {
+        .withSuccessHandler((response) => {
           setBusy(false);
-          showReportSuccessDialog();
+          resetPaymentReportMode();
+          showReportSuccessDialog(response);
           loadData();
         })
         .withFailureHandler((error) => {
@@ -1092,7 +1342,8 @@ Christian GRADERT100"></textarea>
           updateState();
           showError(error);
         })
-        .reportRegistrationDetails(recordId, {
+        .reportRegistrationBatch({
+          recordIds: selectedRecordIds(),
           paymentLast5: input.value,
           receiptRequired,
           receiptMode: buildReceiptModeValue(receiptFrequency, receiptTarget),
@@ -1135,7 +1386,11 @@ Christian GRADERT100"></textarea>
     });
 
     if (!caseIds.length) {
-      els.adminCaseSummary.innerHTML = `<div class="notice">${state.adminCaseScope === 'history' ? '目前沒有符合條件的歷史專案。' : '目前沒有符合條件的目前專案。'}</div>`;
+      const totalCases = state.reportCases.length || state.cases.length;
+      const emptyMessage = totalCases
+        ? (state.adminCaseScope === 'history' ? '目前沒有符合條件的歷史專案。' : '目前沒有符合條件的目前專案。')
+        : '個案清單目前沒有資料，請先確認試算表的「個案清單」工作表。';
+      els.adminCaseSummary.innerHTML = `<div class="notice">${emptyMessage}</div>`;
       return;
     }
 
@@ -1615,7 +1870,11 @@ Christian GRADERT100"></textarea>
   }
 
   function switchView(view) {
+    const previousView = state.currentView;
     state.currentView = view;
+    if (view === 'report' && previousView !== 'report') {
+      resetPaymentReportMode();
+    }
     document.getElementById('registrationView').classList.toggle('hidden', view !== 'registration');
     document.getElementById('reportView').classList.toggle('hidden', view !== 'report');
     document.getElementById('adminView').classList.toggle('hidden', view !== 'admin');
@@ -1755,18 +2014,24 @@ Christian GRADERT100"></textarea>
     } else if (state.currentView === 'report') {
       els.myRecords.innerHTML = `<div class="notice">${message}</div>`;
     } else {
-      alert(message);
+      els.adminCaseSummary.innerHTML = `<div class="notice">後台資料讀取失敗：${message}</div>`;
     }
   }
 
-  function showReportSuccessDialog() {
+  function showReportSuccessDialog(response) {
     document.querySelectorAll('.reportSuccessOverlay').forEach((item) => item.remove());
     const overlay = document.createElement('div');
     overlay.className = 'reportSuccessOverlay';
+    const records = response?.records || [];
+    const recordLines = records.map((record) => `${escapeHtml(record.recordId)}　${money(record.totalAmount)} 元`).join('<br>');
+    const count = Number(response?.recordCount || records.length || 1);
+    const total = Number(response?.paymentBatchTotal || records.reduce((sum, record) => sum + Number(record.totalAmount || 0), 0));
     overlay.innerHTML = `
       <div class="reportSuccessDialog" role="dialog" aria-modal="true" aria-labelledby="reportSuccessTitle">
-        <h2 id="reportSuccessTitle">成功回報</h2>
-        <p>如有問題可在此處更正回報</p>
+        <h2 id="reportSuccessTitle">付款回報完成</h2>
+        <p>本次共回報 ${count} 筆</p>
+        <p>付款總額 ${money(total)} 元</p>
+        ${recordLines ? `<p>${recordLines}</p>` : ''}
         <button class="reportSuccessConfirm" type="button">確認</button>
       </div>
     `;
