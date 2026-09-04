@@ -2,7 +2,7 @@
 
 更新日期：2026-09-04
 用途：交給新電腦 Codex 接手「543 捐款回報」Google Apps Script 專案。
-狀態：移機前盤點完成，Cloud @83 source 已與舊電腦 Local 完全比對一致。
+狀態：移機前盤點完成，Cloud @83 source 已與舊電腦 Local 完全比對一致，Production @83 Git checkpoint 已建立並推送 `origin/main`。
 
 本文件不得放入任何密碼、Token、OAuth credential、完整 Script ID、完整 Deployment ID、完整 Spreadsheet ID、LIFF ID value、`ADMIN_PASSWORD_HASH` value。
 
@@ -21,28 +21,30 @@ main
 舊 Git HEAD：
 2f617ccff5e293d07a31e281b16ccc264c0411d9
 
-HEAD short：
-2f617cc
+Production @83 checkpoint：
+d65acf20347a41f9a33b3bd564aaef59cac3b8dc
 
-HEAD commit：
-Adjust duplicate donor dialog layout
+Checkpoint short：
+d65acf2
+
+Checkpoint commit：
+chore: sync production Apps Script v83
 ```
 
-目前 GitHub `main` 仍落後正式 Local / Cloud source。
-尚未建立 Production @83 Git checkpoint。
+目前 GitHub `main` 已同步正式 Local / Cloud @83 source。
+Production @83 Git checkpoint 已建立：`d65acf20347a41f9a33b3bd564aaef59cac3b8dc`。
 
 ## 2. 目前本機狀態
 
 Git repository：是。
 clasp 專案：是，根目錄有 `.clasp.json`。
 目前 branch：`main`。
-本機 HEAD 與 `origin/main` commit 一致，但 working tree 有正式功能修改尚未 commit。
+本機 HEAD 與 `origin/main` commit 一致，正式 Production @83 source 已建立 Git checkpoint。
 
-目前已知 modified files：
+目前已知正式 modified files：
 
 ```text
-Code.gs
-JavaScript.html
+無
 ```
 
 目前 staged files：
@@ -54,7 +56,6 @@ JavaScript.html
 目前 untracked files 包含：
 
 ```text
-543-MIGRATION-HANDOFF.md
 cloud-check-path.txt
 create_explainer_video.ps1
 docs/
@@ -165,10 +166,16 @@ cloud=337 / 60ca3303a571
 
 ```text
 舊電腦 Local source = Apps Script Cloud @83 source
-GitHub main != Production @83 source
+GitHub main = Production @83 source
 ```
 
-GitHub 還停在舊 HEAD `2f617ccff5e293d07a31e281b16ccc264c0411d9`，尚未包含目前 working tree 的正式修改。
+Production @83 Git checkpoint 已建立並推送：
+
+```text
+d65acf20347a41f9a33b3bd564aaef59cac3b8dc
+```
+
+目前 GitHub `main` 已包含正式 Local / Cloud @83 source。
 
 ## 6. 正式功能現況
 
@@ -537,24 +544,29 @@ npm install
 
 ## 12. 移機策略
 
-目前新電腦不能只 clone GitHub main。
+目前新電腦可以直接 clone GitHub main 取得正式 source。
 
 原因：
 
 ```text
-GitHub main 尚未同步 Production @83
-GitHub main 仍停在 2f617ccff5e293d07a31e281b16ccc264c0411d9
-正式 Local / Cloud @83 已包含後續修改
+Production @83 checkpoint 已建立
+origin/main 已同步
+Local = Cloud @83
+GitHub = Local
 ```
 
-正確流程：
-
-舊電腦：
+舊電腦已完成：
 
 ```text
-1. 完成本 MD
+1. 完成本 MD 初版
 2. 建立 Production @83 Git checkpoint
 3. push origin/main
+```
+
+checkpoint commit：
+
+```text
+d65acf20347a41f9a33b3bd564aaef59cac3b8dc
 ```
 
 新電腦：
@@ -568,21 +580,27 @@ GitHub main 仍停在 2f617ccff5e293d07a31e281b16ccc264c0411d9
 6. 再恢復開發
 ```
 
-若舊電腦沒有先 commit/push：
+注意：
 
 ```text
-必須人工帶走整個專案資料夾
-或至少帶走 Code.gs、JavaScript.html、.clasp.json、543-MIGRATION-HANDOFF.md
+GitHub 不包含 .clasp.json
+新電腦仍需安全帶入 .clasp.json，或用同一 Google 帳號重新 clasp clone 正式 Apps Script Project
 ```
 
-## 13. Git Checkpoint 前建議納入 Git 的檔案
+## 13. Git Checkpoint 狀態
 
-必須納入：
+已納入 Production @83 checkpoint：
 
 ```text
 Code.gs
 JavaScript.html
 543-MIGRATION-HANDOFF.md
+```
+
+checkpoint commit：
+
+```text
+d65acf20347a41f9a33b3bd564aaef59cac3b8dc
 ```
 
 視需求納入：
