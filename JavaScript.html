@@ -1129,6 +1129,48 @@ Christian GRADERT100"></textarea>
     setTimeout(() => document.getElementById(`inlineReportLast5-${cssId(recordId)}`)?.focus(), 50);
   }
 
+  function isHelperReportRecord(record) {
+    const sourceType = String(record?.sourceType || '').trim();
+    return sourceType === 'helper_created' || sourceType === '小幫手代填';
+  }
+
+  function reportRecordTimestamp(record) {
+    for (const value of [record?.updatedAt, record?.createdAt]) {
+      const timestamp = Date.parse(String(value || ''));
+      if (!Number.isNaN(timestamp)) return timestamp;
+    }
+    return 0;
+  }
+
+  function isValidReceiptEmailValue(input, value) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return false;
+    const previousValue = input.value;
+    input.value = normalized;
+    const valid = input.checkValidity();
+    input.value = previousValue;
+    return valid;
+  }
+
+  function findRecentReceiptEmail(reportRecord, emailInput) {
+    const currentLineUserId = String(state.lineUserId || '').trim();
+    const recordLineUserId = String(reportRecord?.lineUserId || '').trim();
+    if (!currentLineUserId || !recordLineUserId || recordLineUserId !== currentLineUserId) return '';
+    if (isHelperReportRecord(reportRecord)) return '';
+
+    return state.registrations
+      .filter((record) => record && record.lineUserId === currentLineUserId)
+      .filter((record) => !isHelperReportRecord(record))
+      .map((record, index) => ({
+        email: String(record.receiptEmail || '').trim(),
+        timestamp: reportRecordTimestamp(record),
+        index
+      }))
+      .filter((item) => isValidReceiptEmailValue(emailInput, item.email))
+      .sort((a, b) => b.timestamp - a.timestamp || b.index - a.index)
+      .map((item) => item.email)[0] || '';
+  }
+
   function renderInlineReportForm(recordId) {
     const id = cssId(recordId);
     const candidates = getReportBatchCandidates(recordId);
@@ -1181,6 +1223,10 @@ Christian GRADERT100"></textarea>
             <span>Email地址：</span>
             <input id="inlineReceiptEmail-${id}" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com">
           </label>
+          <div id="inlineReceiptEmailHint-${id}" class="receiptEmailAutofillHint hidden" role="status" aria-live="polite">
+            <span aria-hidden="true">✉️</span>
+            <span>系統已幫你填入上次使用的 Email，請看一下有沒有錯。</span>
+          </div>
         </div>
         <div id="inlineReportMemoStep-${id}" class="reportStep hidden">
           <label class="reportMemoField">
@@ -1205,6 +1251,7 @@ Christian GRADERT100"></textarea>
     const receiptFrequencyStep = document.getElementById(`inlineReceiptFrequencyStep-${id}`);
     const receiptTargetStep = document.getElementById(`inlineReceiptTargetStep-${id}`);
     const receiptEmailStep = document.getElementById(`inlineReceiptEmailStep-${id}`);
+    const receiptEmailHint = document.getElementById(`inlineReceiptEmailHint-${id}`);
     const reportMemoStep = document.getElementById(`inlineReportMemoStep-${id}`);
     const receiptEmailInput = document.getElementById(`inlineReceiptEmail-${id}`);
     const reportMemoInput = document.getElementById(`inlineReportMemo-${id}`);
@@ -1213,14 +1260,27 @@ Christian GRADERT100"></textarea>
     const batchSummary = document.getElementById(`inlineBatchSummary-${id}`);
     const batchCheckboxes = Array.from(form.querySelectorAll('.inlineBatchCheckbox'));
     const candidates = getReportBatchCandidates(recordId);
+    const reportRecord = candidates.find((record) => record.recordId === recordId) || null;
     let receiptRequired = null;
     let receiptFrequency = '';
     let receiptTarget = '';
     let submitting = false;
+    let receiptEmailAutofilled = false;
+    let receiptEmailAutoValue = '';
+    let receiptEmailUserEdited = false;
 
     const selectedRecordIds = () => batchCheckboxes
       .filter((checkbox) => checkbox.checked)
       .map((checkbox) => checkbox.value);
+
+    const maybeAutofillReceiptEmail = () => {
+      if (receiptEmailUserEdited || receiptEmailInput.value.trim()) return;
+      const historyEmail = findRecentReceiptEmail(reportRecord, receiptEmailInput);
+      if (!historyEmail) return;
+      receiptEmailInput.value = historyEmail;
+      receiptEmailAutofilled = true;
+      receiptEmailAutoValue = historyEmail;
+    };
 
     const updateState = () => {
       if (submitting) {
@@ -1233,6 +1293,7 @@ Christian GRADERT100"></textarea>
       });
       const hasSelection = selectedRecordIds().length > 0;
       const hasLast5 = /^\d{5}$/.test(input.value);
+      const needsReceipt = hasLast5 && receiptRequired === true;
       receiptStep.classList.toggle('hidden', !hasLast5);
       if (!hasLast5) {
         receiptRequired = null;
@@ -1246,13 +1307,14 @@ Christian GRADERT100"></textarea>
         form.querySelectorAll('[data-receipt-frequency], [data-receipt-target]').forEach((item) => item.classList.remove('selected'));
       }
       const receiptChosen = receiptRequired !== null;
-      const needsReceipt = hasLast5 && receiptRequired === true;
+      if (needsReceipt) maybeAutofillReceiptEmail();
       const frequencyChosen = receiptFrequency === 'annual' || receiptFrequency === 'perPayment';
       const otherReceipt = receiptFrequency === 'other';
       const targetChosen = Boolean(receiptTarget);
       receiptFrequencyStep.classList.toggle('hidden', !needsReceipt);
       receiptTargetStep.classList.toggle('hidden', !(needsReceipt && frequencyChosen));
       receiptEmailStep.classList.toggle('hidden', !needsReceipt);
+      receiptEmailHint.classList.toggle('hidden', !(needsReceipt && receiptEmailAutofilled));
       reportMemoStep.classList.toggle('hidden', !(hasLast5 && (receiptRequired === false || needsReceipt)));
       const emailOk = receiptRequired !== true || receiptEmailInput.value.trim();
       const receiptDetailOk = receiptRequired === false || otherReceipt || (frequencyChosen && targetChosen);
@@ -1309,7 +1371,13 @@ Christian GRADERT100"></textarea>
       });
     });
 
-    receiptEmailInput.addEventListener('input', updateState);
+    receiptEmailInput.addEventListener('input', () => {
+      if (!receiptEmailAutofilled || receiptEmailInput.value.trim() !== receiptEmailAutoValue) {
+        receiptEmailAutofilled = false;
+        receiptEmailUserEdited = true;
+      }
+      updateState();
+    });
     reportMemoInput.addEventListener('input', updateState);
     form.querySelector('[data-inline-cancel]').addEventListener('click', () => cancelBatchReportEditing(recordId));
     form.addEventListener('submit', (event) => {

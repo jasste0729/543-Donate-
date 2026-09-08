@@ -2095,6 +2095,24 @@
     text-align: left;
   }
 
+  .receiptEmailAutofillHint {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px;
+    border: 3px solid #d97706;
+    border-radius: 18px;
+    color: #78350f;
+    background: #fef3c7;
+    font-size: clamp(24px, 5.5vw, 36px);
+    line-height: 1.35;
+    font-weight: 900;
+  }
+
+  .receiptEmailAutofillHint.hidden {
+    display: none;
+  }
+
   .reportMemoField {
     display: grid;
     gap: 8px;
