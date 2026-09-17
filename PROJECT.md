@@ -4,9 +4,10 @@
 > 用途：供未來 ChatGPT / Codex 在需求討論、程式修改、測試、部署與 Git 操作前閱讀。
 > 原則：本文件記錄已確認的專案規格與決策；實際程式碼仍須以 Repository 現況驗證。若 Repository、Production 與本文件不一致，不得自行猜測，必須先回報差異。
 > Current baseline date：2026-09-17
-> Current Production：Version 85
-> Current Git checkpoint：`e8c45ca0dbbde013cdfd105ad65ac977ae723533`
-> P1 狀態：唯讀效能盤點已完成，尚未實作任何 P1 程式修改。
+> Current Production：Version 87
+> Production source checkpoint：`1b97451eed032de3b66c1c7b5fa9a26dbf77a39c`
+> P0／P0.1、P1-1、P1-2A：已結案；P1 效能階段暫停新增優化。
+> Working Tree baseline：乾淨
 
 ---
 
@@ -45,11 +46,12 @@
 
 截至 2026-09-17 最後確認：
 
-- Production Version：`85`
-- Description：`performance optimize registration lock and runtime`
+- Production Version：`87`
+- Description：`optimize getMyRegistrationData candidate filtering`
 - 正式 Deployment：沿用既有 Production deployment
 - Deployment ID：只可使用遮罩形式，例如 `AKfy...1wF4`
-- 正式 URL：Version 84 → 85 時保持不變
+- 正式 URL：Version 86 → 87 時保持不變
+- rollback Version：`86` 保留
 - 新增 deployment：否
 - 刪除 deployment：否
 
@@ -60,10 +62,10 @@
 - Repository：`jasste0729/543-Donate-`
 - Remote：`https://github.com/jasste0729/543-Donate-.git`
 - Branch：`main`
-- Current checkpoint：`e8c45ca0dbbde013cdfd105ad65ac977ae723533`
-- Commit：`perf(registration): reduce lock contention and runtime sheet writes`
+- Production source checkpoint：`1b97451eed032de3b66c1c7b5fa9a26dbf77a39c`
+- Commit：`perf(registration): filter user rows before normalization`
 - `HEAD = origin/main`
-- GitHub main 已同步 Production @85 source
+- GitHub main 已同步 Production @87 source
 
 ### 重要版本
 
@@ -88,6 +90,20 @@
 - Description：`performance optimize registration lock and runtime`
 - 功能：P0 / P0.1 登記效能與相容性修正
 - Git checkpoint：`e8c45ca0dbbde013cdfd105ad65ac977ae723533`
+
+#### Production @86
+
+- Version：86
+- Description：`P1 batch context reuse performance test`
+- 功能：P1-1 `reportRegistrationBatch` request-scoped context reuse
+- Git checkpoint：`71673c016d7af337d9a6de7ae53e68d163eaf02b`
+
+#### Production @87
+
+- Version：87
+- Description：`optimize getMyRegistrationData candidate filtering`
+- 功能：P1-2A `getMyRegistrationData` raw candidate filtering
+- Git checkpoint：`1b97451eed032de3b66c1c7b5fa9a26dbf77a39c`
 
 ---
 
@@ -461,45 +477,117 @@ P0 / P0.1 已正式結案。
 
 ---
 
-## 9. P1 Read-only Audit
+## 9. P1 Implementation / Validation
 
-P1 效能瓶頸唯讀盤點已完成；目前尚未修改程式、clasp push、建立 Version、deploy、commit 或 git push。
+P1-1 與 P1-2A 已完成實作、驗證並部署至 Production @86／@87；目前 P1 效能階段暫停新增優化。Apps Script 詳細 PERF phase logs 尚未取得，因此 phase 數值仍須與 execution duration 分開記錄，不得捏造。
 
-### P1-1：reportRegistrationBatch
+### P1-1：reportRegistrationBatch context reuse
 
-目前最大剩餘瓶頸：
+狀態：已實作並部署至 Production Version 86。
 
-- summary 同一 request 可能完整讀取兩次
-- 每個涉及的 case sheet 仍需完整讀取
-- 相同 case 的 getSheetByName 可能在去重前重複執行
-- Sheet read 發生於 Script Lock 持有期間
-- selected record 查找已使用 Map，主要問題不是 O(N×M)
-- write side 已改善，read side 成為主要成本
+Commit：`71673c016d7af337d9a6de7ae53e68d163eaf02b`
 
-建議：
+實作內容：
 
-- summary 只 resolve／讀取一次
-- 建立 recordId → rowIndex／record Map
-- unique case IDs 只計算一次
-- 每個 unique case sheet 只 resolve／讀取一次
-- 使用同一份 in-memory rows 完成 final validation 與 touched-row mapping
-- 保留 Script Lock、paymentBatchId、付款規則與 touched-row grouped writes
+- request-scoped batch context
+- summary sheet 每次 request 只完整讀取一次
+- selected unique case sheet 每張只完整讀取一次
+- `updateRegistrationsBatch_` 重用已讀 context
+- 相同 case ID 去重
+- touched-row grouped writes 保留
+- Script Lock 與付款業務規則不變
 
-必測 contiguous、non-contiguous、multi-case、ownership/status changed、payment total、paymentBatchId 與 summary/case consistency。
+正式驗證：
 
-### P1-2：getMyRegistrationData / post-submit refresh
+- 單筆／單個案 batch：22.316 秒，PASS
+- case／summary：一致
+- paymentBatchId／paymentBatchTotal：正確
+- 舊紀錄：63.184 秒
+- 改善只能作方向性參考，因條件不同
 
-`getMyRegistrationData` 目前完整讀取 summary，對所有有 recordId 的 rows normalize，最後才依 LINE User ID filter。
+待補驗：
 
-最低風險方案：先依 raw LINE User ID column 篩選，再只 normalize current user rows。這能降低 Apps Script CPU，但不會減少 Sheet 傳輸量。
+- 正式多筆
+- 同案不連續
+- 跨個案
+- 未選 row
+- PERF phase logs
 
-Post-submit 目前平行呼叫 `loadFrontCases()` 與 `loadMyRecordsData()`，success dialog 已先顯示。可考慮先將 backend response merge 到前端 state，但保留背景 authoritative refresh；不得直接取消 refresh。
+不得再將 summary 重複 full read 或 selected case sheet 重複 read 列為目前未解決問題。
 
-### P1-3：PERF Observability
+### P1-2A：getMyRegistrationData candidate filtering
 
-目前 PERF log 沒有 request correlation ID。建議加入非個資 short requestId，讓同一 request 的所有 phase 共用。
+狀態：已實作並部署至 Production Version 87。
 
-不得記錄姓名、手機、Email、LINE User ID、donor name、memo、payment last5 或 registration ID。
+Commit：`1b97451eed032de3b66c1c7b5fa9a26dbf77a39c`
+
+實作內容：
+
+- summary sheet 維持完整讀取一次
+- 先依 raw recordId／lineUserId header alias 篩選
+- 只對 candidate rows 建立 canonical object
+- 只 normalize candidate rows
+- 原本 final ownership filter 保留
+- return payload、row order、self／helper／legacy semantics 不變
+- sourceRowCount／candidateRowCount／returnedRowCount 安全 logging
+- pure read 保持
+
+正式驗證：
+
+- createRegistration：4.023 秒，PASS
+- getMyRegistrationData：1.169 秒，PASS
+- getFrontCases：1.859 秒，PASS
+- case／summary 各新增 1 筆
+- duplicate／missing write：未見
+- current amount／case status：正確
+- self_created：PASS
+
+比較限制：
+
+- 舊 getMyRegistrationData 約 9.266～13.351 秒
+- Version 87 為 1.169 秒
+- 非完全同資料量／網路條件
+- P1-2A 不減少 Sheet RPC 或傳輸量
+- 不宣稱固定改善百分比
+
+待補驗：
+
+- helper_created 正式 live 實測
+- PERF phase logs
+- 前端 Email history 完整人工目視
+
+不得再將「getMyRegistrationData 對所有 rows normalize 後才 filter」列為目前未解決問題。
+
+### P1-2B：post-submit refresh
+
+- 暫不實作
+- `loadFrontCases()`／`loadMyRecordsData()` 已平行
+- success dialog 已先顯示
+- Production @87：`getMyRegistrationData` 1.169 秒、`getFrontCases` 1.859 秒
+- 預期收益有限
+- 修改前端 state merge 可能引入 Email history、payment state、current amount 過期風險
+
+### P1-3：PERF correlation ID
+
+- 暫不實作
+- 目前主要限制為 Apps Script 詳細 Logs 無法展開
+- 單純加入 requestId 無法解決 log access
+- 待 observability 管道可用時再評估
+- 不得記錄姓名、手機、Email、LINE User ID、donor name、memo、payment last5 或 registration ID
+
+### P1 效能階段
+
+- 暫停新增優化
+- 維持 Production @87
+- 持續觀察 execution time 與 lock timeout
+- 等自然多筆資料出現後補驗 P1-1
+
+### 下一個不同性質的候選
+
+- `nextRecordId_` count + 1 刪列重複風險
+- 屬資料正確性問題
+- 不是 P1 效能問題
+- 尚未修改
 
 ### 暫不優先處理
 
@@ -618,8 +706,8 @@ Script ID、Deployment ID 若需回報，只能顯示遮罩。
 - Cross-Sheet transaction／rollback：未解決
 - nextRecordId_ count + 1：刪列後可能產生重複 ID
 - Duplicate recordId legacy data：batch update 可能更新所有同 ID rows
-- reportRegistrationBatch：summary 重複 full read 與 case read，列為 P1-1
-- getMyRegistrationData：完整讀 summary 並先 normalize 後 filter，列為 P1-2
+- reportRegistrationBatch：P1-1 context reuse 已完成；多筆正式驗證與 PERF phase logs 仍待補
+- getMyRegistrationData：P1-2A candidate filtering 已完成；helper_created live、PERF phase logs 與 Email history 目視仍待補
 - PERF correlation：目前沒有 requestId，列為 P1-3
 - Production Sheet inventory：尚未重新 live verify
 - Backup / restore SOP：尚未建立完整版本
@@ -632,13 +720,14 @@ Script ID、Deployment ID 若需回報，只能顯示遮罩。
 
 Production：
 
-- Version：85
-- Description：`performance optimize registration lock and runtime`
+- Version：87
+- Description：`optimize getMyRegistrationData candidate filtering`
+- rollback Version：86 保留
 
 Git：
 
 - Branch：main
-- HEAD：`e8c45ca0dbbde013cdfd105ad65ac977ae723533`
+- Production source checkpoint：`1b97451eed032de3b66c1c7b5fa9a26dbf77a39c`
 - HEAD = origin/main
 - Baseline Working Tree：clean
 
@@ -650,16 +739,28 @@ P0 / P0.1：
 - 已建立 Git checkpoint
 - 正式結案
 
-P1：
+P1-1：
 
-- Repository 唯讀盤點已完成
-- 尚未修改程式
-- 尚未 clasp push
-- 尚未建立 Version
-- 尚未 deploy
-- 尚未 commit／git push
+- 已實作
+- 已部署至 Production Version 86
+- 已建立 Git checkpoint：`71673c016d7af337d9a6de7ae53e68d163eaf02b`
+- summary 與每個 unique case sheet 在同一 request 只讀一次
+- 保留 final state validation、Script Lock、paymentBatchId、付款規則與 touched-row grouped writes
 
-下一個建議工作為 P1-1：安全重構 `reportRegistrationBatch`，讓 summary 與每個 unique case sheet 在同一 request 只讀一次，同時保留 final state validation、Script Lock、paymentBatchId、付款規則與 touched-row grouped writes。
+P1-2A：
+
+- 已實作
+- 已部署至 Production Version 87
+- 已建立 Git checkpoint：`1b97451eed032de3b66c1c7b5fa9a26dbf77a39c`
+- `getMyRegistrationData` 先篩選 raw candidate rows，再 normalize candidate rows
+
+P1 後續決策：
+
+- P1-2B post-submit refresh：暫不實作
+- P1-3 PERF correlation ID：暫不實作
+- P1 效能階段暫停新增優化，持續觀察 execution time 與 lock timeout
+
+下一個不同性質的候選工作為 `nextRecordId_` count + 1 刪列重複風險；這是資料正確性問題，不是目前 P1 效能問題。
 
 ---
 
@@ -698,18 +799,22 @@ P1：
 
 目前有效狀態：
 
-- Production @85
-- Git `e8c45ca...`
+- Production @87
+- Production source checkpoint：`1b97451eed032de3b66c1c7b5fa9a26dbf77a39c`
 - P0 / P0.1 已結案
-- P1 唯讀盤點已完成
-- P1 尚未實作
+- P1-1 已結案，Production Version 86
+- P1-2A 已結案，Production Version 87
+- P1-2B post-submit refresh 暫不實作
+- P1-3 PERF correlation ID 暫不實作
+- P1 效能階段暫停新增優化
 - PAYMENT-UI-004 維持手動選取
 - Email 使用歷史 registration，不使用 LINE email scope
 - Memo 維持純備註
 - normal runtime 不 migration
 - normal runtime 不 autoResize
 - Script Lock 保留
-- reportRegistrationBatch 為 P1-1 首要候選
+- `reportRegistrationBatch` context reuse 已完成
+- `getMyRegistrationData` candidate filtering 已完成
 
 未來 ChatGPT / Codex 接手時：
 
