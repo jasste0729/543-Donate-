@@ -770,7 +770,8 @@ function reportRegistrationBatch(payload) {
     lockAcquiredAt = Date.now();
 
     const readStartedAt = Date.now();
-    const allRecords = listRegistrations();
+    const batchContext = createRegistrationBatchContext_(recordIds);
+    const allRecords = batchContext.records;
     logPerformance_('reportRegistrationBatch', 'read', readStartedAt, {
       success: true,
       rowCount: allRecords.length
@@ -809,7 +810,7 @@ function reportRegistrationBatch(payload) {
     };
 
     const writeStartedAt = Date.now();
-    const records = updateRegistrationsBatch_(recordIds, patch);
+    const records = updateRegistrationsBatch_(recordIds, patch, batchContext);
     logPerformance_('reportRegistrationBatch', 'update_write', writeStartedAt, {
       success: true,
       rowCount: recordIds.length
@@ -1250,17 +1251,73 @@ function updateRegistration_(recordId, patch) {
   return { ok: true, record: normalizeRegistration_(updatedRecord) };
 }
 
-function updateRegistrationsBatch_(recordIds, patch) {
+function createRegistrationBatchContext_(recordIds) {
+  const targetIds = Array.from(new Set((recordIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const contextsBySheetId = {};
+  const readContext = (sheet) => {
+    if (!sheet) return null;
+    const sheetId = String(sheet.getSheetId());
+    if (!contextsBySheetId[sheetId]) {
+      contextsBySheetId[sheetId] = {
+        sheet,
+        data: sheet.getDataRange().getValues()
+      };
+    }
+    return contextsBySheetId[sheetId];
+  };
+
+  const summarySheet = ss.getSheetByName(SHEETS.registrationSummary);
+  const validationSummarySheet = summarySheet || ss.getSheetByName(LEGACY_SHEETS.registrations);
+  const validationSheets = validationSummarySheet && validationSummarySheet.getLastRow() > 1
+    ? [validationSummarySheet]
+    : ss.getSheets()
+      .filter((sheet) => isCaseRegistrationSheet_(sheet.getName()));
+  const updateSheets = getRegistrationUpdateSheetsForRecordIds_(targetIds, ss, summarySheet);
+  const orderedReadSheets = [];
+  const seenReadSheets = {};
+  const addReadSheet = (sheet) => {
+    if (!sheet || seenReadSheets[sheet.getSheetId()]) return;
+    seenReadSheets[sheet.getSheetId()] = true;
+    orderedReadSheets.push(sheet);
+  };
+  updateSheets
+    .filter((sheet) => sheet !== summarySheet)
+    .forEach(addReadSheet);
+  validationSheets
+    .filter((sheet) => sheet !== summarySheet && sheet !== validationSummarySheet)
+    .forEach(addReadSheet);
+  addReadSheet(summarySheet);
+  if (validationSummarySheet !== summarySheet) addReadSheet(validationSummarySheet);
+  orderedReadSheets.forEach(readContext);
+
+  const validationContexts = validationSheets.map(readContext);
+  const sheetContexts = updateSheets.map(readContext);
+  const records = validationContexts.flatMap((context) => {
+    const data = context.data;
+    const headers = data[0] || [];
+    assertRegistrationHeadersCompatible_(context.sheet.getName(), headers);
+    return data.slice(1)
+      .map((row) => rowToCanonicalObject_(headers, row))
+      .filter((row) => row.recordId)
+      .map(normalizeRegistration_);
+  });
+
+  return { records, sheetContexts };
+}
+
+function updateRegistrationsBatch_(recordIds, patch, batchContext) {
   const targetIds = Array.from(new Set((recordIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
   const targetSet = targetIds.reduce((map, recordId) => {
     map[recordId] = true;
     return map;
   }, {});
-  const sheets = getRegistrationUpdateSheetsForRecordIds_(targetIds);
+  const context = batchContext || createRegistrationBatchContext_(targetIds);
   const updated = {};
 
-  sheets.forEach((sheet) => {
-    const data = sheet.getDataRange().getValues();
+  context.sheetContexts.forEach((sheetContext) => {
+    const sheet = sheetContext.sheet;
+    const data = sheetContext.data;
     if (data.length < 2) return;
     const headers = data[0];
     assertRegistrationHeadersCompatible_(sheet.getName(), headers);
@@ -1313,10 +1370,11 @@ function writeTouchedRegistrationRows_(sheet, data, rowIndexes, columnCount) {
   writeGroup();
 }
 
-function getRegistrationUpdateSheetsForRecordIds_(recordIds) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function getRegistrationUpdateSheetsForRecordIds_(recordIds, spreadsheet, summarySheet) {
+  const ss = spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
   const sheets = [];
   const seen = {};
+  const seenCaseIds = {};
   const addSheet = (sheet) => {
     if (!sheet || seen[sheet.getSheetId()]) return;
     seen[sheet.getSheetId()] = true;
@@ -1325,9 +1383,11 @@ function getRegistrationUpdateSheetsForRecordIds_(recordIds) {
 
   recordIds.forEach((recordId) => {
     const caseId = String(recordId || '').split('-').slice(0, -1).join('-');
-    if (caseId) addSheet(ss.getSheetByName(getCaseRegistrationSheetName_(caseId)));
+    if (!caseId || seenCaseIds[caseId]) return;
+    seenCaseIds[caseId] = true;
+    addSheet(ss.getSheetByName(getCaseRegistrationSheetName_(caseId)));
   });
-  addSheet(ss.getSheetByName(SHEETS.registrationSummary));
+  addSheet(arguments.length >= 3 ? summarySheet : ss.getSheetByName(SHEETS.registrationSummary));
 
   return sheets;
 }
