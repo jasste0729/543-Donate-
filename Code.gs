@@ -100,9 +100,49 @@ const PAYMENT_METHOD_LABELS = {
 };
 
 const REGISTRATION_QUEUE_WAIT_MS = 45000;
+const DUPLICATE_CHECK_VERSION = 2;
 const ADMIN_PASSWORD_HASH_PROPERTY = 'ADMIN_PASSWORD_HASH';
 const ADMIN_SESSION_TTL_SECONDS = 6 * 60 * 60;
 const ADMIN_SESSION_CACHE_PREFIX = 'admin_session_';
+const REGISTRATION_REQUIRED_FIELDS = [
+  'recordId',
+  'caseId',
+  'representativeName',
+  'representativePhone',
+  'totalAmount',
+  'paymentMethod',
+  'donorListJson',
+  'receiptRequired',
+  'receiptStatus',
+  'paymentStatus',
+  'paymentDate',
+  'receiptNo',
+  'receiptDate',
+  'createdAt',
+  'updatedAt',
+  'lineUserId',
+  'liffProfileName',
+  'sourceType',
+  'reportedLineUserId',
+  'reportedProfileName',
+  'paymentLast5',
+  'paymentBatchId',
+  'paymentBatchTotal',
+  'receiptMode',
+  'receiptEmail',
+  'memo',
+  'createdByLineUserId',
+  'createdByProfileName'
+];
+
+function logPerformance_(operation, phase, startedAt, details) {
+  const entry = Object.assign({
+    operation,
+    phase,
+    elapsedMs: Math.max(Date.now() - startedAt, 0)
+  }, details || {});
+  console.log(`[PERF] ${JSON.stringify(entry)}`);
+}
 
 function doGet(e) {
   const template = HtmlService.createTemplateFromFile('Index');
@@ -267,11 +307,33 @@ function getAdminRegistrationsData(options) {
 }
 
 function getMyRegistrationData(options) {
+  const totalStartedAt = Date.now();
+  let succeeded = false;
   options = options || {};
   const lineUserId = String(options.lineUserId || '').trim();
-  return {
-    registrations: lineUserId ? listRegistrationsForLineUser_(lineUserId) : []
-  };
+  try {
+    const readStartedAt = Date.now();
+    const rows = lineUserId
+      ? readRegistrationRowsFromSheet_(getSheet_(SHEETS.registrationSummary, LEGACY_SHEETS.registrations))
+      : [];
+    logPerformance_('getMyRegistrationData', 'sheet_read', readStartedAt, {
+      success: true,
+      rowCount: rows.length
+    });
+    const normalizeStartedAt = Date.now();
+    const registrations = rows
+      .filter((row) => row.recordId)
+      .map(normalizeRegistration_)
+      .filter((record) => record.lineUserId === lineUserId);
+    logPerformance_('getMyRegistrationData', 'normalize_filter', normalizeStartedAt, {
+      success: true,
+      rowCount: registrations.length
+    });
+    succeeded = true;
+    return { registrations };
+  } finally {
+    logPerformance_('getMyRegistrationData', 'total', totalStartedAt, { success: succeeded });
+  }
 }
 
 function listCases() {
@@ -284,8 +346,7 @@ function listRegistrationsForLineUser_(lineUserId) {
   if (!targetLineUserId) return [];
 
   const summarySheet = getSheet_(SHEETS.registrationSummary, LEGACY_SHEETS.registrations);
-  migrateExistingRows_(summarySheet);
-  return readRowsFromSheet_(summarySheet)
+  return readRegistrationRowsFromSheet_(summarySheet)
     .filter((row) => row.recordId)
     .map(normalizeRegistration_)
     .filter((record) => record.lineUserId === targetLineUserId);
@@ -315,7 +376,6 @@ function listAllCases_() {
 function setCaseArchived(caseId, archived) {
   requireAdmin_(arguments[2]);
   const sheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
-  applyHeaders_(sheet, HEADERS.cases);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const caseIdIndex = findHeaderIndex_(headers, FIELD_ALIASES.caseId);
@@ -323,6 +383,9 @@ function setCaseArchived(caseId, archived) {
   const updatedAtIndex = findHeaderIndex_(headers, FIELD_ALIASES.updatedAt);
   const openedIndex = findHeaderIndex_(headers, FIELD_ALIASES.opened);
   const statusIndex = findHeaderIndex_(headers, FIELD_ALIASES.status);
+  if ([caseIdIndex, archivedIndex, updatedAtIndex, openedIndex, statusIndex].some((index) => index === -1)) {
+    throw new Error('個案清單欄位不相容，請先執行管理者維護。');
+  }
   const targetIndex = data.findIndex((row, index) => index > 0 && row[caseIdIndex] === caseId);
   if (targetIndex === -1) throw new Error(`找不到個案：${caseId}`);
 
@@ -346,6 +409,8 @@ function listRegistrations() {
 }
 
 function checkDuplicateRegistration(payload) {
+  const totalStartedAt = Date.now();
+  let succeeded = false;
   payload = payload || {};
   const targetCaseId = String(payload.caseId || '').trim();
   const donors = (payload.donors || [])
@@ -354,26 +419,32 @@ function checkDuplicateRegistration(payload) {
       amount: Number(donor.amount || 0)
     }))
     .filter((donor) => donor.name && donor.amount > 0);
-  if (!targetCaseId || !donors.length) return { duplicates: [] };
+  if (!targetCaseId || !donors.length) {
+    logPerformance_('checkDuplicateRegistration', 'total', totalStartedAt, {
+      success: true,
+      rowCount: 0
+    });
+    return { duplicates: [] };
+  }
 
-  const targets = {};
-  donors.forEach((donor) => {
-    targets[donor.name] = donor;
-  });
-
-  const duplicates = listRegistrationsForCase_(targetCaseId)
-    .filter((record) => normalizePaymentStatus_(record.paymentStatus) !== '已取消')
-    .flatMap((record) => record.donors
-      .map((donor) => ({
-        recordId: record.recordId,
-        representativeName: record.representativeName,
-        name: String(donor.name || '').trim(),
-        amount: Number(donor.amount || 0)
-      }))
-      .filter((donor) => targets[normalizeDuplicateName_(donor.name)]))
-    .slice(0, 10);
-
-  return { duplicates };
+  try {
+    const readStartedAt = Date.now();
+    const records = listRegistrationsForCase_(targetCaseId);
+    logPerformance_('checkDuplicateRegistration', 'sheet_read', readStartedAt, {
+      success: true,
+      rowCount: records.length
+    });
+    const scanStartedAt = Date.now();
+    const duplicates = findDuplicateRegistrations_(records, donors);
+    logPerformance_('checkDuplicateRegistration', 'duplicate_scan', scanStartedAt, {
+      success: true,
+      rowCount: records.length
+    });
+    succeeded = true;
+    return { duplicates };
+  } finally {
+    logPerformance_('checkDuplicateRegistration', 'total', totalStartedAt, { success: succeeded });
+  }
 }
 
 function searchRegistrationsForReport(caseId, keyword) {
@@ -402,8 +473,7 @@ function listRegistrationsForCase_(caseId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const caseSheet = ss.getSheetByName(getCaseRegistrationSheetName_(targetCaseId));
   const sourceSheet = caseSheet || getSheet_(SHEETS.registrationSummary, LEGACY_SHEETS.registrations);
-  migrateExistingRows_(sourceSheet);
-  const rows = readRowsFromSheet_(sourceSheet)
+  const rows = readRegistrationRowsFromSheet_(sourceSheet)
     .filter((row) => row.caseId === targetCaseId);
 
   return rows
@@ -411,30 +481,101 @@ function listRegistrationsForCase_(caseId) {
     .map(normalizeRegistration_);
 }
 
+function findDuplicateRegistrations_(records, donors) {
+  const targets = (donors || []).reduce((map, donor) => {
+    const name = normalizeDuplicateName_(donor.name);
+    if (name) map[name] = true;
+    return map;
+  }, {});
+
+  return (records || [])
+    .filter((record) => normalizePaymentStatus_(record.paymentStatus) !== '已取消')
+    .flatMap((record) => record.donors
+      .map((donor) => ({
+        recordId: record.recordId,
+        representativeName: record.representativeName,
+        name: String(donor.name || '').trim(),
+        amount: Number(donor.amount || 0)
+      }))
+      .filter((donor) => targets[normalizeDuplicateName_(donor.name)]))
+    .slice(0, 10);
+}
+
 function createRegistration(payload) {
+  const totalStartedAt = Date.now();
   validateRegistration_(payload);
+  const donors = (payload.donors || []).map((donor) => ({
+    name: String(donor.name || '').trim(),
+    amount: Number(donor.amount || 0)
+  }));
+  const normalized = {
+    caseId: String(payload.caseId || '').trim(),
+    representativeName: String(payload.representativeName || '').trim(),
+    representativePhone: String(payload.representativePhone || '').trim(),
+    totalAmount: Number(payload.totalAmount || 0),
+    paymentMethod: payload.paymentMethod || 'bankTransfer',
+    donorListJson: formatDonorsForSheet_(donors),
+    lineUserId: payload.lineUserId || '',
+    liffProfileName: payload.liffProfileName || '',
+    sourceType: payload.sourceType || 'self_created',
+    memo: payload.memo || ''
+  };
+  const duplicateCheckVersion = Number(payload.duplicateCheckVersion || 0);
+  const duplicateConfirmed = payload.duplicateConfirmed === true;
 
   const lock = LockService.getScriptLock();
   let locked = false;
+  let lockAcquiredAt = 0;
+  let succeeded = false;
 
   try {
-    lock.waitLock(REGISTRATION_QUEUE_WAIT_MS);
+    const lockWaitStartedAt = Date.now();
+    try {
+      lock.waitLock(REGISTRATION_QUEUE_WAIT_MS);
+      logPerformance_('createRegistration', 'lock_wait', lockWaitStartedAt, { success: true });
+    } catch (error) {
+      logPerformance_('createRegistration', 'lock_wait', lockWaitStartedAt, { success: false });
+      throw error;
+    }
     locked = true;
+    lockAcquiredAt = Date.now();
+
+    const sheetStartedAt = Date.now();
+    const caseSheet = ensureCaseRegistrationSheet_(normalized.caseId);
+    const summarySheet = getOrCreateRegistrationSummarySheet_();
+    const caseRows = readRegistrationRowsFromSheet_(caseSheet);
+    logPerformance_('createRegistration', 'sheet_read', sheetStartedAt, {
+      success: true,
+      rowCount: caseRows.length
+    });
+
+    const currentAmount = calculateCurrentAmountFromRows_(caseRows, normalized.caseId);
+    const capacityStartedAt = Date.now();
+    validateCaseStillOpenForRegistration_(normalized.caseId, normalized.totalAmount, currentAmount);
+    logPerformance_('createRegistration', 'capacity_check', capacityStartedAt, { success: true });
+
+    const duplicateStartedAt = Date.now();
+    const normalizedRecords = caseRows
+      .filter((row) => row.recordId)
+      .map(normalizeRegistration_);
+    const duplicates = findDuplicateRegistrations_(normalizedRecords, donors);
+    logPerformance_('createRegistration', 'duplicate_recheck', duplicateStartedAt, {
+      success: true,
+      rowCount: normalizedRecords.length
+    });
+    if (duplicates.length
+      && duplicateCheckVersion >= DUPLICATE_CHECK_VERSION
+      && !duplicateConfirmed) {
+      throw new Error('送出前發現新的重複芳名紀錄，請重新確認後再送出。');
+    }
+
+    const recordIdStartedAt = Date.now();
+    const recordId = nextRecordId_(normalized.caseId, caseRows);
+    logPerformance_('createRegistration', 'record_id', recordIdStartedAt, { success: true });
+
     const now = new Date();
-    validateCaseStillOpenForRegistration_(payload.caseId, Number(payload.totalAmount || 0));
-    const recordId = nextRecordId_(payload.caseId);
-    const donors = (payload.donors || []).map((donor) => ({
-      name: String(donor.name || '').trim(),
-      amount: Number(donor.amount || 0)
-    }));
-    const row = canonicalRegistrationToRow_({
+    const row = canonicalRegistrationToRow_(Object.assign({}, normalized, {
       recordId,
-      caseId: payload.caseId,
-      representativeName: String(payload.representativeName || '').trim(),
-      representativePhone: String(payload.representativePhone || '').trim(),
-      totalAmount: Number(payload.totalAmount || 0),
-      paymentMethod: payload.paymentMethod || 'bankTransfer',
-      donorListJson: formatDonorsForSheet_(donors),
       receiptRequired: '否',
       receiptStatus: '待回報',
       paymentStatus: '待付款',
@@ -453,26 +594,33 @@ function createRegistration(payload) {
       paymentBatchTotal: '',
       receiptMode: '',
       receiptEmail: '',
-      memo: payload.memo || '',
-      createdByLineUserId: payload.lineUserId || '',
-      createdByProfileName: payload.liffProfileName || ''
-    });
+      createdByLineUserId: normalized.lineUserId,
+      createdByProfileName: normalized.liffProfileName
+    }));
 
-    const caseSheet = ensureCaseRegistrationSheet_(payload.caseId);
-    const summarySheet = getSheet_(SHEETS.registrationSummary);
-    migrateExistingRows_(summarySheet);
+    const appendCaseStartedAt = Date.now();
     caseSheet.appendRow(row);
+    logPerformance_('createRegistration', 'append_case', appendCaseStartedAt, { success: true });
+    const appendSummaryStartedAt = Date.now();
     summarySheet.appendRow(row);
-    updateCaseCurrentAmount_(payload.caseId);
+    logPerformance_('createRegistration', 'append_summary', appendSummaryStartedAt, { success: true });
+    const caseUpdateStartedAt = Date.now();
+    updateCaseCurrentAmount_(normalized.caseId, currentAmount + normalized.totalAmount);
+    logPerformance_('createRegistration', 'case_status_update', caseUpdateStartedAt, { success: true });
 
+    succeeded = true;
     return { ok: true, record: normalizeRegistration_(rowToCanonicalObject_(HEADERS.registrations, row)) };
   } catch (error) {
-    if (String(error && error.message || error).indexOf('Lock') !== -1) {
+    if (/Lock|鎖定/.test(String(error && error.message || error))) {
       throw new Error('目前登記人數較多，系統正在排隊處理。請稍後再送出一次。');
     }
     throw error;
   } finally {
-    if (locked) lock.releaseLock();
+    if (locked) {
+      lock.releaseLock();
+      logPerformance_('createRegistration', 'lock_held', lockAcquiredAt, { success: succeeded });
+    }
+    logPerformance_('createRegistration', 'total', totalStartedAt, { success: succeeded });
   }
 }
 
@@ -496,13 +644,14 @@ function createHelperRegistrations(payload) {
   try {
     lock.waitLock(REGISTRATION_QUEUE_WAIT_MS);
     locked = true;
-    validateCaseStillOpenForRegistration_(payload.caseId, totalAmount);
+    const caseSheet = ensureCaseRegistrationSheet_(payload.caseId);
+    const summarySheet = getOrCreateRegistrationSummarySheet_();
+    const caseRows = readRegistrationRowsFromSheet_(caseSheet);
+    const currentAmount = calculateCurrentAmountFromRows_(caseRows, payload.caseId);
+    validateCaseStillOpenForRegistration_(payload.caseId, totalAmount, currentAmount);
 
     const now = new Date();
-    const caseSheet = ensureCaseRegistrationSheet_(payload.caseId);
-    const summarySheet = getSheet_(SHEETS.registrationSummary);
-    migrateExistingRows_(summarySheet);
-    const recordId = nextRecordId_(payload.caseId);
+    const recordId = nextRecordId_(payload.caseId, caseRows);
     const row = canonicalRegistrationToRow_({
       recordId,
       caseId: payload.caseId,
@@ -537,7 +686,7 @@ function createHelperRegistrations(payload) {
     summarySheet.appendRow(row);
     const records = [normalizeRegistration_(rowToCanonicalObject_(HEADERS.registrations, row))];
 
-    updateCaseCurrentAmount_(payload.caseId);
+    updateCaseCurrentAmount_(payload.caseId, currentAmount + totalAmount);
     const caseInfo = listAllCases_().find((item) => item.caseId === payload.caseId) || {};
     return {
       ok: true,
@@ -581,6 +730,7 @@ function reportRegistrationDetails(recordId, payload) {
 }
 
 function reportRegistrationBatch(payload) {
+  const totalStartedAt = Date.now();
   payload = payload || {};
   const recordIds = Array.isArray(payload.recordIds)
     ? Array.from(new Set(payload.recordIds.map((id) => String(id || '').trim()).filter(Boolean)))
@@ -605,11 +755,26 @@ function reportRegistrationBatch(payload) {
 
   const lock = LockService.getScriptLock();
   let locked = false;
+  let lockAcquiredAt = 0;
+  let succeeded = false;
   try {
-    lock.waitLock(REGISTRATION_QUEUE_WAIT_MS);
+    const lockWaitStartedAt = Date.now();
+    try {
+      lock.waitLock(REGISTRATION_QUEUE_WAIT_MS);
+      logPerformance_('reportRegistrationBatch', 'lock_wait', lockWaitStartedAt, { success: true });
+    } catch (error) {
+      logPerformance_('reportRegistrationBatch', 'lock_wait', lockWaitStartedAt, { success: false });
+      throw error;
+    }
     locked = true;
+    lockAcquiredAt = Date.now();
 
+    const readStartedAt = Date.now();
     const allRecords = listRegistrations();
+    logPerformance_('reportRegistrationBatch', 'read', readStartedAt, {
+      success: true,
+      rowCount: allRecords.length
+    });
     const recordMap = allRecords.reduce((map, record) => {
       map[record.recordId] = record;
       return map;
@@ -643,7 +808,13 @@ function reportRegistrationBatch(payload) {
       updatedAt: now
     };
 
+    const writeStartedAt = Date.now();
     const records = updateRegistrationsBatch_(recordIds, patch);
+    logPerformance_('reportRegistrationBatch', 'update_write', writeStartedAt, {
+      success: true,
+      rowCount: recordIds.length
+    });
+    succeeded = true;
     return {
       ok: true,
       paymentBatchId,
@@ -653,12 +824,16 @@ function reportRegistrationBatch(payload) {
       records: recordIds.map((recordId) => records[recordId]).filter(Boolean)
     };
   } catch (error) {
-    if (String(error && error.message || error).indexOf('Lock') !== -1) {
+    if (/Lock|鎖定/.test(String(error && error.message || error))) {
       throw new Error('目前回報人數較多，系統正在排隊處理。請稍後再送出一次。');
     }
     throw error;
   } finally {
-    if (locked) lock.releaseLock();
+    if (locked) {
+      lock.releaseLock();
+      logPerformance_('reportRegistrationBatch', 'lock_held', lockAcquiredAt, { success: succeeded });
+    }
+    logPerformance_('reportRegistrationBatch', 'total', totalStartedAt, { success: succeeded });
   }
 }
 
@@ -780,8 +955,10 @@ function applyHeaders_(sheet, headers) {
 function createCaseRegistrationSheets_(cases, summaryRows) {
   cases.forEach((caseItem) => {
     const sheet = ensureCaseRegistrationSheet_(caseItem.caseId);
-    if (sheet.getLastRow() > 1) {
+    if (!isRegistrationSheetCompatible_(sheet)) {
       migrateExistingRows_(sheet);
+    }
+    if (sheet.getLastRow() > 1) {
       return;
     }
 
@@ -799,9 +976,32 @@ function createCaseRegistrationSheets_(cases, summaryRows) {
 function ensureCaseRegistrationSheet_(caseId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName = getCaseRegistrationSheetName_(caseId);
-  const sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
-  migrateExistingRows_(sheet);
+  const existing = ss.getSheetByName(sheetName);
+  if (existing) return existing;
+
+  const sheet = ss.insertSheet(sheetName);
+  initializeRegistrationSheet_(sheet);
   return sheet;
+}
+
+function getOrCreateRegistrationSummarySheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const existing = ss.getSheetByName(SHEETS.registrationSummary)
+    || ss.getSheetByName(LEGACY_SHEETS.registrations)
+    || ss.getSheetByName(LEGACY_SHEETS.chineseRegistrations);
+  if (existing) {
+    assertRegistrationSheetCompatible_(existing);
+    return existing;
+  }
+
+  const sheet = ss.insertSheet(SHEETS.registrationSummary);
+  initializeRegistrationSheet_(sheet);
+  return sheet;
+}
+
+function initializeRegistrationSheet_(sheet) {
+  sheet.getRange(1, 1, 1, HEADERS.registrations.length).setValues([HEADERS.registrations]);
+  sheet.setFrozenRows(1);
 }
 
 function getCaseRegistrationSheetName_(caseId) {
@@ -885,25 +1085,63 @@ function readRowsFromSheet_(sheet) {
   return values.map((row) => rowToCanonicalObject_(headers, row));
 }
 
+function readRegistrationRowsFromSheet_(sheet) {
+  if (!sheet) return [];
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  if (lastRow < 1 || lastColumn < 1) {
+    throw new Error(`登記資料表欄位不相容：${sheet.getName()}。請先執行管理者 migration。`);
+  }
+
+  const values = sheet.getRange(1, 1, lastRow, lastColumn).getValues();
+  const headers = values.shift();
+  assertRegistrationHeadersCompatible_(sheet.getName(), headers);
+  return values.map((row) => rowToCanonicalObject_(headers, row));
+}
+
+function assertRegistrationSheetCompatible_(sheet) {
+  if (!sheet || sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) {
+    throw new Error(`登記資料表欄位不相容：${sheet ? sheet.getName() : '未知工作表'}。請先執行管理者 migration。`);
+  }
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  assertRegistrationHeadersCompatible_(sheet.getName(), headers);
+}
+
+function isRegistrationSheetCompatible_(sheet) {
+  if (!sheet || sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) return false;
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  return REGISTRATION_REQUIRED_FIELDS.every((key) => {
+    const aliases = FIELD_ALIASES[key] || [key];
+    return findHeaderIndex_(headers, aliases) !== -1;
+  });
+}
+
+function assertRegistrationHeadersCompatible_(sheetName, headers) {
+  const missing = REGISTRATION_REQUIRED_FIELDS.filter((key) => {
+    const aliases = FIELD_ALIASES[key] || [key];
+    return findHeaderIndex_(headers, aliases) === -1;
+  });
+  if (missing.length) {
+    console.error(`[SCHEMA] incompatible registration sheet: ${sheetName}; missingFields=${missing.join(',')}`);
+    throw new Error(`登記資料表欄位不相容：${sheetName}。請先執行管理者 migration。`);
+  }
+}
+
 function readAllCaseRegistrationRows_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const summarySheet = ss.getSheetByName(SHEETS.registrationSummary)
     || ss.getSheetByName(LEGACY_SHEETS.registrations);
   if (summarySheet && summarySheet.getLastRow() > 1) {
-    migrateExistingRows_(summarySheet);
-    return readRowsFromSheet_(summarySheet);
+    return readRegistrationRowsFromSheet_(summarySheet);
   }
 
   const caseSheets = ss.getSheets().filter((sheet) => isCaseRegistrationSheet_(sheet.getName()));
 
   if (caseSheets.length) {
-    return caseSheets.flatMap((sheet) => {
-      migrateExistingRows_(sheet);
-      return readRowsFromSheet_(sheet);
-    });
+    return caseSheets.flatMap(readRegistrationRowsFromSheet_);
   }
 
-  return summarySheet ? readRowsFromSheet_(summarySheet) : [];
+  return summarySheet ? readRegistrationRowsFromSheet_(summarySheet) : [];
 }
 
 function rowToCanonicalObject_(headers, row) {
@@ -987,8 +1225,8 @@ function parseDonors_(value) {
   }).filter((donor) => donor.name && donor.amount > 0);
 }
 
-function nextRecordId_(caseId) {
-  const rows = readRowsFromSheet_(ensureCaseRegistrationSheet_(caseId));
+function nextRecordId_(caseId, existingRows) {
+  const rows = existingRows || readRegistrationRowsFromSheet_(ensureCaseRegistrationSheet_(caseId));
   const count = rows.filter((row) => row.caseId === caseId).length + 1;
   return `${caseId}-${Utilities.formatString('%03d', count)}`;
 }
@@ -1022,17 +1260,17 @@ function updateRegistrationsBatch_(recordIds, patch) {
   const updated = {};
 
   sheets.forEach((sheet) => {
-    migrateExistingRows_(sheet);
     const data = sheet.getDataRange().getValues();
     if (data.length < 2) return;
     const headers = data[0];
+    assertRegistrationHeadersCompatible_(sheet.getName(), headers);
     const idIndex = findHeaderIndex_(headers, FIELD_ALIASES.recordId);
     if (idIndex === -1) return;
     const columnIndexes = Object.keys(patch).reduce((map, key) => {
       map[key] = findHeaderIndex_(headers, FIELD_ALIASES[key] || [key]);
       return map;
     }, {});
-    let touched = false;
+    const touchedRowIndexes = [];
     for (let rowIndex = 1; rowIndex < data.length; rowIndex += 1) {
       const recordId = String(data[rowIndex][idIndex] || '').trim();
       if (!targetSet[recordId]) continue;
@@ -1041,17 +1279,38 @@ function updateRegistrationsBatch_(recordIds, patch) {
         if (columnIndex !== -1) data[rowIndex][columnIndex] = patch[key];
       });
       updated[recordId] = normalizeRegistration_(rowToCanonicalObject_(headers, data[rowIndex]));
-      touched = true;
+      touchedRowIndexes.push(rowIndex);
     }
-    if (touched) {
-      sheet.getRange(2, 1, data.length - 1, headers.length).setValues(data.slice(1));
-    }
+    writeTouchedRegistrationRows_(sheet, data, touchedRowIndexes, headers.length);
   });
 
   targetIds.forEach((recordId) => {
     if (!updated[recordId]) throw new Error(`找不到登記編號：${recordId}`);
   });
   return updated;
+}
+
+function writeTouchedRegistrationRows_(sheet, data, rowIndexes, columnCount) {
+  if (!rowIndexes.length) return;
+  const sorted = rowIndexes.slice().sort((left, right) => left - right);
+  let groupStart = sorted[0];
+  let groupEnd = sorted[0];
+
+  const writeGroup = () => {
+    const rows = data.slice(groupStart, groupEnd + 1);
+    sheet.getRange(groupStart + 1, 1, rows.length, columnCount).setValues(rows);
+  };
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    if (sorted[index] === groupEnd + 1) {
+      groupEnd = sorted[index];
+      continue;
+    }
+    writeGroup();
+    groupStart = sorted[index];
+    groupEnd = sorted[index];
+  }
+  writeGroup();
 }
 
 function getRegistrationUpdateSheetsForRecordIds_(recordIds) {
@@ -1093,9 +1352,9 @@ function getRegistrationUpdateSheets_(recordId) {
 }
 
 function updateRegistrationInSheet_(sheet, recordId, patch) {
-  migrateExistingRows_(sheet);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
+  assertRegistrationHeadersCompatible_(sheet.getName(), headers);
   const idIndex = findHeaderIndex_(headers, FIELD_ALIASES.recordId);
   const targetIndex = data.findIndex((row, index) => index > 0 && row[idIndex] === recordId);
 
@@ -1112,9 +1371,11 @@ function updateRegistrationInSheet_(sheet, recordId, patch) {
   return rowToCanonicalObject_(headers, updatedRow);
 }
 
-function updateCaseCurrentAmount_(caseId) {
+function updateCaseCurrentAmount_(caseId, precomputedTotal) {
   const casesSheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
-  const total = calculateCaseCurrentAmount_(caseId);
+  const total = typeof precomputedTotal === 'number'
+    ? precomputedTotal
+    : calculateCaseCurrentAmount_(caseId);
 
   const data = casesSheet.getDataRange().getValues();
   const headers = data[0];
@@ -1166,7 +1427,11 @@ function calculateCaseCurrentAmount_(caseId) {
   const sheet = ss.getSheetByName(getCaseRegistrationSheetName_(caseId));
   if (!sheet) return 0;
 
-  return readRowsFromSheet_(sheet)
+  return calculateCurrentAmountFromRows_(readRegistrationRowsFromSheet_(sheet), caseId);
+}
+
+function calculateCurrentAmountFromRows_(rows, caseId) {
+  return (rows || [])
     .filter((row) => row.caseId === caseId)
     .filter((row) => normalizePaymentStatus_(row.paymentStatus) !== '已取消')
     .reduce((sum, row) => sum + Number(row.totalAmount || 0), 0);
@@ -1184,12 +1449,14 @@ function validateRegistration_(payload) {
   if (!payload.donors || !payload.donors.length) throw new Error('請至少填寫一位捐款人');
 }
 
-function validateCaseStillOpenForRegistration_(caseId, totalAmount) {
+function validateCaseStillOpenForRegistration_(caseId, totalAmount, precomputedCurrentAmount) {
   const sheet = getSheet_(SHEETS.cases, LEGACY_SHEETS.cases);
   const rows = readRowsFromSheet_(sheet);
   const target = rows.find((row) => row.caseId === caseId);
   if (!target) throw new Error(`找不到個案：${caseId}`);
-  const currentAmount = calculateCaseCurrentAmount_(caseId);
+  const currentAmount = typeof precomputedCurrentAmount === 'number'
+    ? precomputedCurrentAmount
+    : calculateCaseCurrentAmount_(caseId);
   if (isCaseClosed_(target) || String(target.status || '').trim() === '已額滿' || !isOpen_(target.opened) || isCaseFull_({ targetAmount: target.targetAmount, currentAmount })) {
     throw new Error('此個案目前已額滿或未開放，請重新選擇個案。');
   }

@@ -687,6 +687,7 @@ Christian GRADERT100"></textarea>
   }
 
   async function submitRegistration() {
+    if (els.submitButton.disabled) return;
     if (!state.lineUserId) {
       els.frontResult.innerHTML = '<div class="notice">尚未取得 LINE 身分，請從 LINE 重新開啟後再送出。</div>';
       return;
@@ -710,9 +711,11 @@ Christian GRADERT100"></textarea>
       sourceType: 'self_created',
       memo: '',
       lineUserId: state.lineUserId,
-      liffProfileName: state.liffProfileName
+      liffProfileName: state.liffProfileName,
+      duplicateCheckVersion: 2
     };
 
+    setBusy(true);
     const localDuplicates = findLocalDuplicateDonors(donors);
     if (localDuplicates.length) {
       const confirmed = await showDuplicateConfirmDialog({
@@ -721,16 +724,17 @@ Christian GRADERT100"></textarea>
         duplicates: localDuplicates,
         confirmText: '仍要送出'
       });
-      if (!confirmed) return;
+      if (!confirmed) {
+        setBusy(false);
+        return;
+      }
     }
 
-    setBusy(true);
     els.frontResult.innerHTML = '<div class="notice">正在檢查是否重複登記，請稍候。</div>';
     google.script.run
       .withSuccessHandler(async (result) => {
         const duplicates = result?.duplicates || [];
         if (duplicates.length) {
-          setBusy(false);
           const confirmed = await showDuplicateConfirmDialog({
             title: '發現重複芳名',
             message: '系統已有相同芳名的登記紀錄，請確認是否仍要送出。',
@@ -739,9 +743,10 @@ Christian GRADERT100"></textarea>
           });
           if (!confirmed) {
             els.frontResult.innerHTML = '<div class="notice">已取消送出，請確認名單。</div>';
+            setBusy(false);
             return;
           }
-          setBusy(true);
+          payload.duplicateConfirmed = true;
         }
         createRegistrationAfterDuplicateCheck(payload);
       })
