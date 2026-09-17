@@ -313,21 +313,27 @@ function getMyRegistrationData(options) {
   const lineUserId = String(options.lineUserId || '').trim();
   try {
     const readStartedAt = Date.now();
-    const rows = lineUserId
-      ? readRegistrationRowsFromSheet_(getSheet_(SHEETS.registrationSummary, LEGACY_SHEETS.registrations))
-      : [];
+    const readResult = lineUserId
+      ? readRegistrationRowsForLineUser_(
+        getSheet_(SHEETS.registrationSummary, LEGACY_SHEETS.registrations),
+        lineUserId
+      )
+      : { rows: [], sourceRowCount: 0, candidateRowCount: 0 };
     logPerformance_('getMyRegistrationData', 'sheet_read', readStartedAt, {
       success: true,
-      rowCount: rows.length
+      rowCount: readResult.sourceRowCount,
+      sourceRowCount: readResult.sourceRowCount,
+      candidateRowCount: readResult.candidateRowCount
     });
     const normalizeStartedAt = Date.now();
-    const registrations = rows
+    const registrations = readResult.rows
       .filter((row) => row.recordId)
       .map(normalizeRegistration_)
       .filter((record) => record.lineUserId === lineUserId);
     logPerformance_('getMyRegistrationData', 'normalize_filter', normalizeStartedAt, {
       success: true,
-      rowCount: registrations.length
+      rowCount: registrations.length,
+      returnedRowCount: registrations.length
     });
     succeeded = true;
     return { registrations };
@@ -350,6 +356,35 @@ function listRegistrationsForLineUser_(lineUserId) {
     .filter((row) => row.recordId)
     .map(normalizeRegistration_)
     .filter((record) => record.lineUserId === targetLineUserId);
+}
+
+function readRegistrationRowsForLineUser_(sheet, lineUserId) {
+  if (!sheet) return { rows: [], sourceRowCount: 0, candidateRowCount: 0 };
+
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  if (lastRow < 1 || lastColumn < 1) {
+    throw new Error(`登記資料表欄位不相容：${sheet.getName()}。請先執行管理者 migration。`);
+  }
+
+  const values = sheet.getRange(1, 1, lastRow, lastColumn).getValues();
+  const headers = values.shift();
+  assertRegistrationHeadersCompatible_(sheet.getName(), headers);
+
+  // Match rowToCanonicalObject_ alias precedence, including duplicate headers,
+  // without constructing canonical objects for rows outside this LINE user.
+  const recordIdIndex = findCanonicalHeaderIndex_(headers, FIELD_ALIASES.recordId);
+  const lineUserIdIndex = findCanonicalHeaderIndex_(headers, FIELD_ALIASES.lineUserId);
+  const targetLineUserId = String(lineUserId || '').trim();
+  const candidateRows = values.filter((row) => (
+    row[recordIdIndex] && row[lineUserIdIndex] === targetLineUserId
+  ));
+
+  return {
+    rows: candidateRows.map((row) => rowToCanonicalObject_(headers, row)),
+    sourceRowCount: values.length,
+    candidateRowCount: candidateRows.length
+  };
 }
 
 function listAllCases_() {
@@ -1499,6 +1534,15 @@ function calculateCurrentAmountFromRows_(rows, caseId) {
 
 function findHeaderIndex_(headers, aliases) {
   return headers.findIndex((header) => aliases.indexOf(header) !== -1);
+}
+
+function findCanonicalHeaderIndex_(headers, aliases) {
+  for (const alias of aliases) {
+    for (let index = headers.length - 1; index >= 0; index -= 1) {
+      if (headers[index] === alias) return index;
+    }
+  }
+  return -1;
 }
 
 function validateRegistration_(payload) {
